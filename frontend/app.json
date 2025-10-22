@@ -6,6 +6,12 @@
     "newArchEnabled": true,
     "assetBundlePatterns": [
       "**/*"
-    ]
+    ],
+    "android": {
+      "package": "com.anonymous.frontend"
+    },
+    "ios": {
+      "bundleIdentifier": "com.anonymous.frontend"
+    }
   }
 }
