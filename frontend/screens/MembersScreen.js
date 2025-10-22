@@ -48,7 +48,7 @@ const mockMembers = [
   },
   {
     id: "5",
-    name: "Maya Huizer",
+    name: "Maya Huizar",
     phone: "676-667-6767",
     email: "maya@seas.upenn.edu",
     status: "unavailable",
