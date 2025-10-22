@@ -3,14 +3,14 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from './screens/HomeScreen';
-import TaskScreen from './screens/TaskScreen';
-import LeaderboardScreen from './screens/LeaderboardScreen';
+import ProfileScreen from './screens/ProfileScreen';
+import MembersScreen from './screens/MembersScreen';
 import SettingsScreen from './screens/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
 const HomeStack = createNativeStackNavigator();
-const TaskStack = createNativeStackNavigator();
-const LeaderboardStack = createNativeStackNavigator();
+const ProfileStack = createNativeStackNavigator();
+const MembersStack = createNativeStackNavigator();
 
 function HomeStackScreen() {
   return (
@@ -20,20 +20,20 @@ function HomeStackScreen() {
   );
 }
 
-function TaskStackScreen() {
+function ProfileStackScreen() {
   return (
-      <TaskStack.Navigator>
-        <TaskStack.Screen name="Task" component={TaskScreen} />
-      </TaskStack.Navigator>
+      <ProfileStack.Navigator>
+        <ProfileStack.Screen name="Profile" component={ProfileScreen} />
+      </ProfileStack.Navigator>
   );
 }
 
-function LeaderboardStackScreen() {
+function MembersStackScreen() {
   return (
-      <LeaderboardStack.Navigator>
-        <LeaderboardStack.Screen name="Leaderboard" component={LeaderboardScreen} />
-        <LeaderboardStack.Screen name="Settings" component={SettingsScreen} />
-      </LeaderboardStack.Navigator>
+      <MembersStack.Navigator>
+        <MembersStack.Screen name="Members" component={MembersScreen} />
+        <MembersStack.Screen name="Settings" component={SettingsScreen} />
+      </MembersStack.Navigator>
   );
 }
 
@@ -42,8 +42,8 @@ function App() {
         <NavigationContainer>
             <Tab.Navigator>
             <Tab.Screen name="HomeNav" component={HomeStackScreen} />
-            <Tab.Screen name="TaskNav" component={TaskStackScreen} />
-            <Tab.Screen name="LeaderboardNav" component={LeaderboardStackScreen} />
+            <Tab.Screen name="ProfileNav" component={ProfileStackScreen} />
+            <Tab.Screen name="MembersNav" component={MembersStackScreen} />
           </Tab.Navigator>
         </NavigationContainer>
   );
