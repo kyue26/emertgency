@@ -187,7 +187,7 @@ const CampCard = ({ camp }) => {
 
       <View style={styles.injuredRow}>
         {injuredPeople.map((person) => (
-          <View style={{ position: "relative" }}>
+          <View key={person.id} style={{ position: "relative" }}>
             <MaterialCommunityIcons
               name="account"
               size={30}

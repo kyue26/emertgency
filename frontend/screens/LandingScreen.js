@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import landingStyles from "../styles/LandingScreenStyles";
 
 export default function LandingScreen({ onAuthSuccess }) {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -27,7 +28,13 @@ export default function LandingScreen({ onAuthSuccess }) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       {/* Title */}
-      <Text style={styles.logoText}>eMERTgency</Text>
+      <View style={landingStyles.logoSection}>
+        <View style={[landingStyles.brand, { flexDirection: 'row' }]}>
+          <Text style={[styles.logoText, landingStyles.e]}>e</Text>
+          <Text style={[styles.logoText, landingStyles.mert]}>MERT</Text>
+          <Text style={[styles.logoText, landingStyles.gency]}>gency</Text>
+        </View>
+      </View>
 
       {/* Input Fields */}
       <View style={styles.inputContainer}>
@@ -89,9 +96,7 @@ const styles = StyleSheet.create({
   logoText: {
     fontSize: 36,
     fontWeight: "900",
-    color: "#011F5B",
     textAlign: "center",
-    marginBottom: 50,
     textShadowColor: "#999",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
