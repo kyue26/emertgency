@@ -5,11 +5,11 @@ export default StyleSheet.create({
     flex: 1,
     backgroundColor: "#E8F1FA",
     paddingHorizontal: 20,
-    paddingTop: 40,
+    paddingTop: 100,
+    gap: 30,
   },
   titleBox: {
     alignItems: "center",
-    marginBottom: 20,
   },
   title: {
     fontSize: 26,
@@ -26,13 +26,20 @@ export default StyleSheet.create({
   header: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#000",
+    color: "#011F5B",
     marginBottom: "20",
+  },
+  image: {
+    width: 300,  
+    height: 180, 
+    borderWidth: 2,
+    borderColor: "#000",
+    borderRadius: 10,
   },
   codeContainer: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between"
+    justifyContent: "space-between",
   },
   circle: {
     width: 60,
@@ -45,50 +52,27 @@ export default StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 5,
     elevation: 6,
+    marginBottom: 10,
   },
   countText: {
     fontSize: 22,
     fontWeight: "700",
   },
-
-  /* cards */
-  card: {
-    flexDirection: "column",
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-    backgroundColor: "#fff",
-  },
-  campName: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#000",
-  },
-  injuredRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: 8,
-    gap: 6,
-  },
-  fab: {
+  helpButton: {
     position: "absolute",
-    bottom: 20,          
-    right: 20,           
-    backgroundColor: "#DFF6DD",
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    top: 80,         
+    right: 30,
+    backgroundColor: "#F8D7DA",
+    borderRadius: 30, 
+    width: 50,
+    height: 50,
     justifyContent: "center",
     alignItems: "center",
+
     shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
+    elevation: 3, 
   },
 });
