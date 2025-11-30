@@ -8,8 +8,10 @@ import ProfileScreen from './screens/ProfileScreen';
 import MembersScreen from './screens/MembersScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import LandingScreen from "./screens/LandingScreen.js";
-import CommanderTodoScreen from "./screens/CommanderTodoScreen";
+// import CommanderTodoScreen from "./screens/CommanderTodoScreen";
 import AddPersonScreen from './screens/AddPersonScreen.js';
+import CasualtyListScreen from './screens/CasualtyListScreen.js';
+import CasualtyDetailScreen from './screens/CasualtyDetailScreen';
 
 import {
   useFonts,
@@ -21,12 +23,12 @@ import {
 
 const Tab = createBottomTabNavigator();
 const AuthStack = createNativeStackNavigator();
-const CommanderTodoStack = createNativeStackNavigator();
+// const CommanderTodoStack = createNativeStackNavigator();
 const HomeStack = createNativeStackNavigator();
 const ProfileStack = createNativeStackNavigator();
 const MembersStack = createNativeStackNavigator();
 const AddPersonStack = createNativeStackNavigator();
-
+const CasualtyListStack = createNativeStackNavigator();
 // i need to override react native's header in order to increase size of app
 // change fonts, bg colors of header etc here
 const CustomHeader = () => (
@@ -67,18 +69,21 @@ const AppHeaderTitle = () => (
 
 function HomeStackScreen() {
   return (
-      <HomeStack.Navigator 
-        screenOptions={{
-          header: () => <CustomHeader />,
-        }}
-        >
-        <HomeStack.Screen 
-          name="Home" 
-          component={HomeScreen} 
-          />
-      </HomeStack.Navigator>
+    <HomeStack.Navigator
+      screenOptions={{
+        header: () => <CustomHeader />,
+      }}
+    >
+      <HomeStack.Screen name="Home" component={HomeScreen} />
+      <HomeStack.Screen
+        name="CasualtyDetail"
+        component={CasualtyDetailScreen}
+      />
+      <HomeStack.Screen name="List" component={CasualtyListScreen} />
+    </HomeStack.Navigator>
   );
 }
+
 
 function ProfileStackScreen() {
   return (
@@ -116,15 +121,28 @@ function MembersStackScreen() {
       </MembersStack.Navigator>
   );
 }
-function CommanderTodoStackScreen() {
+
+// function CommanderTodoStackScreen() {
+//   return (
+//       <CommanderTodoStack.Navigator 
+//         screenOptions={{
+//           header: () => <CustomHeader />,
+//         }}
+//       >
+//         <CommanderTodoStack.Screen name="CommanderTodo" component={CommanderTodoScreen} />
+//       </CommanderTodoStack.Navigator>
+//   );
+// }
+
+function CasualtyListStackScreen() {
   return (
-      <CommanderTodoStack.Navigator 
+      <CasualtyListStack.Navigator 
         screenOptions={{
           header: () => <CustomHeader />,
         }}
       >
-        <CommanderTodoStack.Screen name="CommanderTodo" component={CommanderTodoScreen} />
-      </CommanderTodoStack.Navigator>
+        <CasualtyListStack.Screen name="CasualtyList" component={CasualtyListScreen} />
+      </CasualtyListStack.Navigator>
   );
 }
 
@@ -136,10 +154,11 @@ function MainTabNavigator() {
       }}
     >
       <Tab.Screen name="HomeNav" component={HomeStackScreen} />
-      <Tab.Screen name="ProfileNav" component={ProfileStackScreen} />
+      <Tab.Screen name="CasualtyListNav" component={CasualtyListStackScreen} /> 
       <Tab.Screen name="AddNav" component={AddPersonStackScreen} />
       <Tab.Screen name="MembersNav" component={MembersStackScreen} />
-      <Tab.Screen name="CommanderTodoNav" component={CommanderTodoStackScreen} />
+      {/* <Tab.Screen name="CommanderTodoNav" component={CommanderTodoStackScreen} /> */}
+      <Tab.Screen name="ProfileNav" component={ProfileStackScreen} />
     </Tab.Navigator>
   );
 }
