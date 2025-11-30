@@ -201,7 +201,7 @@ CREATE INDEX idx_event_audit_action ON event_audit_log(action);
 
 CREATE TABLE group_audit_log (
     id SERIAL PRIMARY KEY,
-    group_id VARCHAR(50) REFERENCES groups(group_id) ON DELETE CASCADE,
+    group_id VARCHAR(50) REFERENCES groups(group_id),
     action VARCHAR(50) NOT NULL,
     performed_by VARCHAR(50) REFERENCES professionals(professional_id) ON DELETE SET NULL,
     details JSONB,
