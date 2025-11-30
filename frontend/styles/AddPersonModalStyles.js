@@ -2,10 +2,10 @@ import { StyleSheet } from "react-native";
 
 export default StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: "#E8F1FA",
     paddingHorizontal: 20,
-    paddingTop: 100,
+    paddingTop: 30,
     gap: 30,
   },
   titleBox: {
@@ -28,6 +28,10 @@ export default StyleSheet.create({
     fontWeight: "700",
     color: "#011F5B",
     marginBottom: "20",
+  },
+  text: {
+    fontSize: 18,
+    color: "#011F5B",
   },
   image: {
     width: 300,  
