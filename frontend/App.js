@@ -12,14 +12,15 @@ import LandingScreen from "./screens/LandingScreen.js";
 import AddPersonScreen from './screens/AddPersonScreen.js';
 import CasualtyListScreen from './screens/CasualtyListScreen.js';
 import CasualtyDetailScreen from './screens/CasualtyDetailScreen';
-
+import { applyGlobalFont } from "./styles/FontPatch";
 import {
   useFonts,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from '@expo-google-fonts/inter';
+  Poppins_300Light,
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+  Poppins_700Bold,
+} from "@expo-google-fonts/poppins";
 
 const Tab = createBottomTabNavigator();
 const AuthStack = createNativeStackNavigator();
@@ -31,6 +32,9 @@ const AddPersonStack = createNativeStackNavigator();
 const CasualtyListStack = createNativeStackNavigator();
 // i need to override react native's header in order to increase size of app
 // change fonts, bg colors of header etc here
+
+applyGlobalFont();
+
 const CustomHeader = () => (
   <View
     style={{
@@ -48,7 +52,7 @@ const AppHeaderTitle = () => (
   <View style={{ alignItems: 'center' }}>
     <Text
       style={{
-        fontFamily: 'Inter_700Bold',   
+        fontFamily: 'Poppins_500Medium',   
         fontSize: 20,
         color: '#FFFFFF',
       }}
@@ -57,8 +61,8 @@ const AppHeaderTitle = () => (
     </Text>
     <Text
       style={{
-        fontFamily: 'Inter_400Regular',
-        fontSize: 20,
+        fontFamily: 'Poppins_300Light',
+        fontSize: 14,
         color: '#FFFFFFB2'
       }}
     >
@@ -165,6 +169,17 @@ function MainTabNavigator() {
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [fontsLoaded] = useFonts({
+    Poppins_300Light,
+    Poppins_400Regular,
+    Poppins_500Medium,
+    Poppins_600SemiBold,
+    Poppins_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return null; // or a loading screen
+  }
 
   return (
     <NavigationContainer>
