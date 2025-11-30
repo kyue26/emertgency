@@ -85,6 +85,15 @@ router.post('/register', [
     }
 
     const { name, email, password, phone_number, role } = req.body;
+
+    // Checking email domain
+    const allowedDomains = ['@pennmert.org', '@publicsafety.upenn.edu'];
+    if (!allowedDomains.some(domain => email.endsWith(domain))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Registration is restricted to Penn MERT and Public Safety emails only.'
+      });
+    }
     
     await client.query('BEGIN');
 
