@@ -21,6 +21,7 @@ import {
   Poppins_600SemiBold,
   Poppins_700Bold,
 } from "@expo-google-fonts/poppins";
+import GuideScreen from './screens/GuideScreen';
 
 const Tab = createBottomTabNavigator();
 const AuthStack = createNativeStackNavigator();
@@ -30,6 +31,7 @@ const ProfileStack = createNativeStackNavigator();
 const MembersStack = createNativeStackNavigator();
 const AddPersonStack = createNativeStackNavigator();
 const CasualtyListStack = createNativeStackNavigator();
+const GuideStack = createNativeStackNavigator();
 // i need to override react native's header in order to increase size of app
 // change fonts, bg colors of header etc here
 
@@ -174,7 +176,7 @@ function MainTabNavigator() {
       <Tab.Screen name="AddNav" component={AddPersonStackScreen} />
       <Tab.Screen name="MembersNav" component={MembersStackScreen} />
       {/* <Tab.Screen name="CommanderTodoNav" component={CommanderTodoStackScreen} /> */}
-      <Tab.Scren name="GuideNav" component={GuideStackScreen} />
+      <Tab.Screen name="GuideNav" component={GuideStackScreen} />
       <Tab.Screen name="ProfileNav" component={ProfileStackScreen} />
     </Tab.Navigator>
   );
