@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import  { View, Text } from 'react-native';
+import  { View, Text, TouchableOpacity} from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -9,6 +10,7 @@ import MembersScreen from './screens/MembersScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import LandingScreen from "./screens/LandingScreen.js";
 // import CommanderTodoScreen from "./screens/CommanderTodoScreen";
+import TaskScreen from './screens/TaskScreen';
 import AddPersonScreen from './screens/AddPersonScreen.js';
 import CasualtyListScreen from './screens/CasualtyListScreen.js';
 import CasualtyDetailScreen from './screens/CasualtyDetailScreen';
@@ -92,11 +94,60 @@ function HomeStackScreen() {
 function ProfileStackScreen() {
   return (
       <ProfileStack.Navigator 
+        initialRouteName="ProfileScreen"
         screenOptions={{
-          header: () => <CustomHeader />,
+            // Default header for the stack. We'll override TaskScreen's header.
+            header: () => <CustomHeader />,
         }}
       >
-        <ProfileStack.Screen name="Profile" component={ProfileScreen} />
+        <ProfileStack.Screen
+          name="ProfileScreen"
+          component={ProfileScreen}
+          options={{
+            // Use the default CustomHeader defined above
+          }} 
+        />
+        <ProfileStack.Screen
+          name="TaskScreen"
+          component={TaskScreen}
+          options={({ navigation }) => ({
+            // This replaces the CustomHeader with a standard RN header, but customized
+            header: () => (
+                <View style={{
+                    backgroundColor: '#011F5B', 
+                    paddingTop: 52,
+                    paddingBottom: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingHorizontal: 15,
+                }}>
+                    {/* Back Button */}
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Feather name="arrow-left" size={24} color="#FFFFFF" />
+                        <Text style={{ fontFamily: 'Poppins_400Regular', color: '#FFFFFF', marginLeft: 8, fontSize: 16 }}>Back</Text>
+                    </TouchableOpacity>
+                    
+                    {/* New Task Button (The + New Task design from your TaskScreen) */}
+                    {/* We need to pass the modal visibility control down, but for now, we'll keep the button visually here */}
+                    <TouchableOpacity 
+                        onPress={() => { /* Navigation logic to open modal is handled in TaskScreen */ }} 
+                        style={{
+                            backgroundColor: '#1E90FF', // A slightly brighter blue
+                            borderRadius: 20,
+                            paddingHorizontal: 15,
+                            paddingVertical: 8,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                        }}
+                    >
+                        <Feather name="plus" size={20} color="#FFFFFF" />
+                        <Text style={{ fontFamily: 'Poppins_600SemiBold', color: '#FFFFFF', marginLeft: 5, fontSize: 15 }}>New Task</Text>
+                    </TouchableOpacity>
+                </View>
+            ),
+          })}
+        />
       </ProfileStack.Navigator>
   );
 }
