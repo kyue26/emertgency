@@ -13,14 +13,6 @@ import AddPersonScreen from './screens/AddPersonScreen.js';
 import CasualtyListScreen from './screens/CasualtyListScreen.js';
 import CasualtyDetailScreen from './screens/CasualtyDetailScreen';
 
-import {
-  useFonts,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from '@expo-google-fonts/inter';
-
 const Tab = createBottomTabNavigator();
 const AuthStack = createNativeStackNavigator();
 // const CommanderTodoStack = createNativeStackNavigator();
@@ -122,6 +114,18 @@ function MembersStackScreen() {
   );
 }
 
+function GuideStackScreen() {
+  return (
+      <GuideStack.Navigator 
+        screenOptions={{
+          header: () => <CustomHeader />,
+        }}
+      >
+        <GuideStack.Screen name="Members" component={GuideScreen} />
+      </GuideStack.Navigator>
+  );
+}
+
 // function CommanderTodoStackScreen() {
 //   return (
 //       <CommanderTodoStack.Navigator 
@@ -158,6 +162,7 @@ function MainTabNavigator() {
       <Tab.Screen name="AddNav" component={AddPersonStackScreen} />
       <Tab.Screen name="MembersNav" component={MembersStackScreen} />
       {/* <Tab.Screen name="CommanderTodoNav" component={CommanderTodoStackScreen} /> */}
+      <Tab.Scren name="GuideNav" component={GuideStackScreen} />
       <Tab.Screen name="ProfileNav" component={ProfileStackScreen} />
     </Tab.Navigator>
   );
