@@ -87,7 +87,6 @@ export default function HomeScreen({ navigation }) {
       <View style={{ marginTop: 24 }}>
         <View style={styles.rowBetween}>
           <Text style={styles.sectionTitle}>Recent Casualties</Text>
-\
           <TouchableOpacity onPress={() => {}}>
             <Text style={styles.viewAll}>View All</Text>
           </TouchableOpacity>
