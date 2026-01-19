@@ -1,7 +1,8 @@
-import React, { useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, TextInput } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from "react-native";
 import styles from "../styles/AddPersonModalStyles";
 import { Dropdown } from "react-native-element-dropdown";
+import { casualtyAPI, eventAPI } from "../services/api";
 
 const codeData = [
   {
@@ -130,9 +131,33 @@ const getTriagePriority = (totalScore) => {
 
 const AddPersonScreen = ({ navigation }) => {
   const [form, setForm] = useState(INITIAL_FORM_STATE);
+  const [activeEventId, setActiveEventId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingEvent, setLoadingEvent] = useState(true);
+
+  // get active event on mount
+  useEffect(() => {
+    const fetchActiveEvent = async () => {
+      try {
+        const response = await eventAPI.getEvents({ status: 'in_progress', limit: 1 });
+        if (response.success && response.events.length > 0) {
+          setActiveEventId(response.events[0].event_id);
+        } else {
+          Alert.alert("No Active Event", "Please create an active event first.");
+        }
+      } catch (error) {
+        console.error('Error fetching active event:', error);
+        Alert.alert("Error", "Failed to load active event.");
+      } finally {
+        setLoadingEvent(false);
+      }
+    };
+    fetchActiveEvent();
+  }, []);
 
   const handleCancel = () => {
     setForm(INITIAL_FORM_STATE);
+    navigation.goBack();
   };
 
   const updateForm = (field, value) => {
@@ -191,22 +216,87 @@ const AddPersonScreen = ({ navigation }) => {
     color: "#0A0A0A",
   };
 
-  const handleSubmit = () => {
-    const payload = {
-      ...form,
-      rrNumeric,
-      rrScore,
-      systolicBP: systolic,
-      bpScore,
-      gcs,
-      gcsScore,
-      triageTotalScore: totalScore,
-      triagePriority,
+  const handleSubmit = async () => {
+    if (!activeEventId) {
+      Alert.alert("Error", "No active event found. Please create an event first.");
+      return;
+    }
+
+    if (!form.triage) {
+      Alert.alert("Error", "Please select a triage color.");
+      return;
+    }
+
+    // map triage key -> color
+    const colorMap = {
+      green: 'green',
+      yellow: 'yellow',
+      red: 'red',
+      black: 'black',
     };
 
-    console.log("Submitting casualty:", payload);
-    navigation.goBack();
+    const color = colorMap[form.triage];
+    if (!color) {
+      Alert.alert("Error", "Invalid triage selection.");
+      return;
+    }
+
+    // need to build casualty data for backend
+    // i'm storing data as JSON in other_information
+    const otherInfoData = {
+      nameOrId: form.nameOrId || null,
+      description: form.description || null,
+      vitals: {
+        RR: rrNumeric || null,
+        BP: systolic || null,
+        gcs: gcs || null,
+      },
+      scores: {
+        rrScore: rrScore || null,
+        bpScore: bpScore || null,
+        gcsScore: gcsScore || null,
+      },
+      triageScore: totalScore || null,
+      triagePriority: triagePriority || null,
+      additionalNotes: form.additionalNotes || null,
+    };
+
+    const casualtyData = {
+      event_id: activeEventId,
+      color: color,
+      breathing: form.RR ? (rrNumeric > 0 ? true : false) : undefined,
+      conscious: gcs ? (gcs >= 13 ? true : false) : undefined,
+      bleeding: undefined, // not in form 
+      hospital_status: undefined, // not in form
+      other_information: JSON.stringify(otherInfoData), 
+    };
+
+    setLoading(true);
+    try {
+      const response = await casualtyAPI.addCasualty(casualtyData);
+      if (response.success) {
+        Alert.alert("Success", "Casualty added successfully!");
+        setForm(INITIAL_FORM_STATE);
+        navigation.goBack();
+      } else {
+        Alert.alert("Error", response.message || "Failed to add casualty.");
+      }
+    } catch (error) {
+      console.error('Error adding casualty:', error);
+      Alert.alert("Error", error.message || "Failed to add casualty. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (loadingEvent) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#011F5B" />
+        <Text style={{ marginTop: 10, color: '#666' }}>Loading event...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1 }}>
@@ -216,9 +306,16 @@ const AddPersonScreen = ({ navigation }) => {
           styles.container,
           { paddingBottom: 80 },
         ]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         <View style={styles.titleBox}>
           <Text style={styles.title}>Add New Casualty</Text>
+          {!activeEventId && (
+            <Text style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>
+              No active event found
+            </Text>
+          )}
         </View>
 
         <View>
@@ -505,24 +602,29 @@ const AddPersonScreen = ({ navigation }) => {
 
           <TouchableOpacity
             onPress={handleSubmit}
+            disabled={loading || loadingEvent || !activeEventId}
             style={{
               flex: 1,
-              backgroundColor: "#011F5B",
+              backgroundColor: loading || loadingEvent || !activeEventId ? "#999" : "#011F5B",
               borderRadius: 8,
               paddingVertical: 12,
               alignItems: "center",
               marginLeft: 8,
             }}
           >
-            <Text
-              style={{
-                color: "#FFFFFF",
-                fontSize: 16,
-                fontWeight: "600",
-              }}
-            >
-              Add Casualty
-            </Text>
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text
+                style={{
+                  color: "#FFFFFF",
+                  fontSize: 16,
+                  fontWeight: "600",
+                }}
+              >
+                Add Casualty
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
       </ScrollView>

@@ -211,6 +211,10 @@ function CasualtyListStackScreen() {
         }}
       >
         <CasualtyListStack.Screen name="CasualtyList" component={CasualtyListScreen} />
+        <CasualtyListStack.Screen
+          name="CasualtyDetail"
+          component={CasualtyDetailScreen}
+        />
       </CasualtyListStack.Navigator>
   );
 }
@@ -220,21 +224,91 @@ function MainTabNavigator() {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
+        tabBarShowLabel: true, 
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '500',
+          marginTop: 4,
+        },
+        tabBarStyle: {
+          backgroundColor: '#011F5B',
+          borderTopWidth: 0,
+          height: 75,
+          paddingBottom: 12,
+          paddingTop: 12,
+        },
+        tabBarActiveTintColor: '#FFFFFF',
+        tabBarInactiveTintColor: '#B5C8E8',
       }}
     >
-      <Tab.Screen name="HomeNav" component={HomeStackScreen} />
-      <Tab.Screen name="CasualtyListNav" component={CasualtyListStackScreen} /> 
-      <Tab.Screen name="AddNav" component={AddPersonStackScreen} />
-      <Tab.Screen name="MembersNav" component={MembersStackScreen} />
+      <Tab.Screen 
+        name="HomeNav" 
+        component={HomeStackScreen}
+        options={{
+          tabBarLabel: 'Home',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="home" size={size || 22} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="CasualtyListNav" 
+        component={CasualtyListStackScreen}
+        options={{
+          tabBarLabel: 'List',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="list" size={size || 22} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="AddNav" 
+        component={AddPersonStackScreen}
+        options={{
+          tabBarLabel: 'Add',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="plus-circle" size={size || 26} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="MembersNav" 
+        component={MembersStackScreen}
+        options={{
+          tabBarLabel: 'Team',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="users" size={size || 22} color={color} />
+          ),
+        }}
+      />
       {/* <Tab.Screen name="CommanderTodoNav" component={CommanderTodoStackScreen} /> */}
-      <Tab.Screen name="GuideNav" component={GuideStackScreen} />
-      <Tab.Screen name="ProfileNav" component={ProfileStackScreen} />
+      <Tab.Screen 
+        name="GuideNav" 
+        component={GuideStackScreen}
+        options={{
+          tabBarLabel: 'Guide',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="book" size={size || 22} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen 
+        name="ProfileNav" 
+        component={ProfileStackScreen}
+        options={{
+          tabBarLabel: 'Profile',
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="user" size={size || 22} color={color} />
+          ),
+        }}
+      />
     </Tab.Navigator>
   );
 }
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [fontsLoaded] = useFonts({
     Poppins_300Light,
     Poppins_400Regular,
@@ -243,7 +317,25 @@ export default function App() {
     Poppins_700Bold,
   });
 
-  if (!fontsLoaded) {
+  // check for stored authentication on mount
+  React.useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { getStoredToken } = require('./services/api');
+        const token = await getStoredToken();
+        if (token) {
+          setIsAuthenticated(true);
+        }
+      } catch (error) {
+        console.error('Error checking auth:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    checkAuth();
+  }, []);
+
+  if (!fontsLoaded || isLoading) {
     return null; // or a loading screen
   }
 

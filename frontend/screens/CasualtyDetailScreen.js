@@ -9,6 +9,7 @@ import {
   Alert,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { transformCasualty } from "../utils/casualtyTransform";
 
 const triageConfig = {
   green: { label: "GREEN - Minor", color: "#22c55e" },
@@ -18,11 +19,12 @@ const triageConfig = {
 };
 
 export default function CasualtyDetailScreen({ route, navigation }) {
-  const { casualty, onUpdate, onDelete } = route.params;
+  const { casualty: rawCasualty, onUpdate, onDelete } = route.params;
+  const casualty = transformCasualty(rawCasualty) || rawCasualty;
 
   const [isEditing, setIsEditing] = useState(false);
   const [edited, setEdited] = useState({
-    triageLevel: casualty.triageLevel,
+    triageLevel: casualty.triageLevel || casualty.color || 'green',
     notes: casualty.notes || "",
   });
 
@@ -109,7 +111,7 @@ export default function CasualtyDetailScreen({ route, navigation }) {
         <View style={styles.iconRow}>
           <MaterialCommunityIcons name="clock-outline" size={18} color="#555" />
           <Text style={styles.iconRowText}>
-            Logged: {formatTime(casualty.timestamp)}
+            Logged: {formatTime(casualty.created_at || casualty.timestamp)}
           </Text>
         </View>
       </View>
@@ -150,65 +152,131 @@ export default function CasualtyDetailScreen({ route, navigation }) {
           <View
             style={[
               styles.triageBadge,
-              { backgroundColor: triageConfig[casualty.triageLevel].color },
+              { backgroundColor: triageConfig[casualty.color || casualty.triageLevel || 'green'].color },
             ]}
           >
             <View style={styles.whiteDot} />
             <Text style={styles.triageBadgeText}>
-              {triageConfig[casualty.triageLevel].label}
+              {triageConfig[casualty.color || casualty.triageLevel || 'green'].label}
             </Text>
           </View>
         )}
       </View>
 
-      {/* Injuries */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Injuries / Chief Complaint</Text>
-        <Text style={styles.bodyText}>{casualty.injuries}</Text>
-      </View>
+      {/* Injuries / Description */}
+      {(casualty.description || casualty.injuries) && (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Injuries / Chief Complaint</Text>
+          <Text style={styles.bodyText}>
+            {casualty.description || casualty.injuries || 'No description provided'}
+          </Text>
+        </View>
+      )}
 
       {/* Vital Signs */}
-      {casualty.vitals &&
-        Object.values(casualty.vitals).some((v) => v !== undefined) && (
+      {casualty.vitals && Object.values(casualty.vitals).some((v) => v !== undefined && v !== null) && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Vital Signs</Text>
 
             <View style={styles.vitalGrid}>
-              {casualty.vitals.bloodPressure && (
+              {casualty.vitals.BP !== undefined && casualty.vitals.BP !== null && (
                 <View>
                   <Text style={styles.vitalLabel}>Blood Pressure</Text>
                   <Text style={styles.vitalValue}>
-                    {casualty.vitals.bloodPressure}
+                    {casualty.vitals.BP}
                   </Text>
                 </View>
               )}
-              {casualty.vitals.heartRate && (
-                <View>
-                  <Text style={styles.vitalLabel}>Heart Rate</Text>
-                  <Text style={styles.vitalValue}>
-                    {casualty.vitals.heartRate} bpm
-                  </Text>
-                </View>
-              )}
-              {casualty.vitals.respiratoryRate && (
+              {casualty.vitals.RR !== undefined && casualty.vitals.RR !== null && (
                 <View>
                   <Text style={styles.vitalLabel}>Respiratory Rate</Text>
                   <Text style={styles.vitalValue}>
-                    {casualty.vitals.respiratoryRate} breaths/min
+                    {casualty.vitals.RR} breaths/min
                   </Text>
                 </View>
               )}
-              {casualty.vitals.oxygenSaturation && (
+              {casualty.vitals.gcs !== undefined && casualty.vitals.gcs !== null && (
                 <View>
-                  <Text style={styles.vitalLabel}>SpO2</Text>
+                  <Text style={styles.vitalLabel}>Glasgow Coma Scale</Text>
                   <Text style={styles.vitalValue}>
-                    {casualty.vitals.oxygenSaturation}%
+                    {casualty.vitals.gcs}
                   </Text>
                 </View>
               )}
             </View>
+            
+            {/* Triage Scores */}
+            {casualty.scores && (
+              <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#eee' }}>
+                <Text style={[styles.sectionTitle, { fontSize: 16, marginBottom: 8 }]}>Triage Scores</Text>
+                {casualty.scores.rrScore !== undefined && (
+                  <Text style={styles.bodyText}>RR Score: {casualty.scores.rrScore}</Text>
+                )}
+                {casualty.scores.bpScore !== undefined && (
+                  <Text style={styles.bodyText}>BP Score: {casualty.scores.bpScore}</Text>
+                )}
+                {casualty.scores.gcsScore !== undefined && (
+                  <Text style={styles.bodyText}>GCS Score: {casualty.scores.gcsScore}</Text>
+                )}
+                {casualty.triageScore !== undefined && (
+                  <Text style={[styles.bodyText, { fontWeight: '600', marginTop: 4 }]}>
+                    Total Triage Score: {casualty.triageScore}
+                  </Text>
+                )}
+                {casualty.triagePriority && (
+                  <Text style={[styles.bodyText, { fontWeight: '600', marginTop: 4 }]}>
+                    Priority: {casualty.triagePriority}
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
         )}
+
+      {/* Status Indicators */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Status</Text>
+        <View style={{ marginTop: 8, gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <MaterialCommunityIcons 
+              name={casualty.breathing ? "check-circle" : "close-circle"} 
+              size={20} 
+              color={casualty.breathing ? "#22c55e" : "#ef4444"} 
+            />
+            <Text style={styles.bodyText}>
+              Breathing: {casualty.breathing ? "Yes" : casualty.breathing === false ? "No" : "Unknown"}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <MaterialCommunityIcons 
+              name={casualty.conscious ? "check-circle" : "close-circle"} 
+              size={20} 
+              color={casualty.conscious ? "#22c55e" : "#ef4444"} 
+            />
+            <Text style={styles.bodyText}>
+              Conscious: {casualty.conscious ? "Yes" : casualty.conscious === false ? "No" : "Unknown"}
+            </Text>
+          </View>
+          {casualty.bleeding !== undefined && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <MaterialCommunityIcons 
+                name={casualty.bleeding ? "alert-circle" : "check-circle"} 
+                size={20} 
+                color={casualty.bleeding ? "#ef4444" : "#22c55e"} 
+              />
+              <Text style={styles.bodyText}>
+                Bleeding: {casualty.bleeding ? "Yes" : "No"}
+              </Text>
+            </View>
+          )}
+          {casualty.hospital_status && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <MaterialCommunityIcons name="hospital-building" size={20} color="#011f5b" />
+              <Text style={styles.bodyText}>Hospital: {casualty.hospital_status}</Text>
+            </View>
+          )}
+        </View>
+      </View>
 
       {/* Notes */}
       <View style={styles.card}>
@@ -237,7 +305,7 @@ export default function CasualtyDetailScreen({ route, navigation }) {
             onPress={() => {
               setIsEditing(false);
               setEdited({
-                triageLevel: casualty.triageLevel,
+                triageLevel: casualty.color || casualty.triageLevel || 'green',
                 notes: casualty.notes || "",
               });
             }}

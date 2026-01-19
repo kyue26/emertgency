@@ -1,23 +1,24 @@
 // screens/HomeScreen.js
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { eventAPI, casualtyAPI } from "../services/api";
+import { transformCasualties } from "../utils/casualtyTransform";
 
 export default function HomeScreen({ navigation }) {
-
-  // mock data
-  const casualties = [
-    { id: "1", name: "Kat Yue", location: "Quad Lawn", triageLevel: "red" },
-    { id: "2", name: "John Doe", location: "Van Pelt", triageLevel: "green" },
-    { id: "3", name: "Luna Chen", location: "Harnwell", triageLevel: "yellow" },
-    { id: "4", name: "Emily Kang", location: "Hill College House", triageLevel: "green" },
-  ];
+  const [casualties, setCasualties] = useState([]);
+  const [activeEvent, setActiveEvent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const triageColors = {
     green: "#22c55e",
@@ -26,19 +27,77 @@ export default function HomeScreen({ navigation }) {
     black: "#1f2937",
   };
 
+  const loadData = async () => {
+    try {
+      // get active events -> in_progress
+      const eventsResponse = await eventAPI.getEvents({ status: 'in_progress', limit: 1 });
+      
+      if (eventsResponse.success && eventsResponse.events.length > 0) {
+        const event = eventsResponse.events[0];
+        setActiveEvent(event);
+        
+        // get casualties for this event
+        const casualtiesResponse = await casualtyAPI.getCasualties({ 
+          event_id: event.event_id,
+          limit: 50 
+        });
+        
+        if (casualtiesResponse.success) {
+          // transform backend data using utility
+          const transformedCasualties = transformCasualties(casualtiesResponse.casualties);
+          setCasualties(transformedCasualties);
+        }
+      } else {
+        // no active events
+        setActiveEvent(null);
+        setCasualties([]);
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+      Alert.alert("Error", "Failed to load data. Please try again.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
+  };
+
   const count = (level) =>
-    casualties.filter((c) => c.triageLevel === level).length;
+    casualties.filter((c) => (c.color || c.triageLevel) === level).length;
 
   const recent = casualties.slice(0, 5);
 
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#011F5B" />
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
       {/* active incident card */}
       <View style={styles.card}>
         <View style={styles.incidentHeader}>
           <View style={styles.iconRow}>
             <MaterialCommunityIcons name="alert" size={22} color="#011F5B" />
-            <Text style={styles.sectionTitle}>Active Incident</Text>
+            <Text style={styles.sectionTitle}>
+              {activeEvent ? activeEvent.name : "No Active Incident"}
+            </Text>
           </View>
 
           <Text style={styles.totalText}>Total: {casualties.length}</Text>
@@ -92,39 +151,45 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {recent.map((casualty) => (
-          <TouchableOpacity
-            key={casualty.id}
-            style={styles.casualtyCard}
-            onPress={() =>
-              navigation.navigate("CasualtyDetail", {
-                casualty, 
-              })
-            }
-          >
-            <View>
-              <Text style={styles.casualtyName}>{casualty.name}</Text>
-              <Text style={styles.casualtyLocation}>{casualty.location}</Text>
-            </View>
-
-            <View
-              style={[
-                styles.triagePill,
-                { backgroundColor: triageColors[casualty.triageLevel] },
-              ]}
+        {recent.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>No casualties yet</Text>
+          </View>
+        ) : (
+          recent.map((casualty) => (
+            <TouchableOpacity
+              key={casualty.id}
+              style={styles.casualtyCard}
+              onPress={() =>
+                navigation.navigate("CasualtyDetail", {
+                  casualty: casualty.original || casualty, 
+                })
+              }
             >
-              <Text style={styles.triagePillText}>
-                {casualty.triageLevel === "green"
-                  ? "Minor"
-                  : casualty.triageLevel === "yellow"
-                  ? "Delayed"
-                  : casualty.triageLevel === "red"
-                  ? "Immediate"
-                  : "Deceased"}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        ))}
+              <View>
+                <Text style={styles.casualtyName}>{casualty.name}</Text>
+                <Text style={styles.casualtyLocation}>{casualty.location}</Text>
+              </View>
+
+              <View
+                style={[
+                  styles.triagePill,
+                  { backgroundColor: triageColors[casualty.color || casualty.triageLevel] },
+                ]}
+              >
+                <Text style={styles.triagePillText}>
+                  {(casualty.color || casualty.triageLevel) === "green"
+                    ? "Minor"
+                    : (casualty.color || casualty.triageLevel) === "yellow"
+                    ? "Delayed"
+                    : (casualty.color || casualty.triageLevel) === "red"
+                    ? "Immediate"
+                    : "Deceased"}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
       </View>
     </ScrollView>
   );
@@ -213,4 +278,12 @@ const styles = StyleSheet.create({
   },
 
   triagePillText: { color: "#FFF", fontWeight: "600" },
+  emptyState: {
+    padding: 40,
+    alignItems: "center",
+  },
+  emptyText: {
+    color: "#888",
+    fontSize: 16,
+  },
 });
