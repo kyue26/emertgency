@@ -72,9 +72,18 @@ const CreateTaskModal = ({ onClose, onCreateTask, professionals = [] }) => {
                         onChangeText={setAssignTo}
                     />
                     {professionals.length > 0 && (
-                        <Text style={{ fontSize: 12, color: '#666', marginTop: -10, marginBottom: 10 }}>
-                            Available: {professionals.map(p => p.name).join(', ')}
-                        </Text>
+                        <View style={{ marginTop: 10, marginBottom: 10 }}>
+                            <Text style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>
+                                Available ({professionals.length}):
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                                {professionals.map((p, index) => (
+                                    <Text key={p.professional_id} style={{ fontSize: 11, color: '#666', marginRight: 8, marginBottom: 2 }}>
+                                        {p.name}{index < professionals.length - 1 ? ',' : ''}
+                                    </Text>
+                                ))}
+                            </View>
+                        </View>
                     )}
 
                     <Text style={modalStyles.label}>Priority <Text style={modalStyles.required}>*</Text></Text>
@@ -139,38 +148,28 @@ const TaskScreen = ({ navigation }) => {
                 setActiveEventId(eventsResponse.events[0].event_id);
             }
 
-            // get all professionals (for assign dropdown)
-            // first try to get from groups, then supplement with all professionals
+            // get all professionals from groups
             const groupsResponse = await groupAPI.getGroups({ include_members: true });
             const allMembers = [];
+            const memberIds = new Set();
             
-            if (groupsResponse.success) {
+            if (groupsResponse.success && groupsResponse.groups) {
                 groupsResponse.groups.forEach(group => {
                     if (group.members) {
-                        allMembers.push(...group.members);
+                        group.members.forEach(member => {
+                            // Avoid duplicates
+                            if (!memberIds.has(member.professional_id)) {
+                                memberIds.add(member.professional_id);
+                                allMembers.push({
+                                    professional_id: member.professional_id,
+                                    name: member.name,
+                                    email: member.email,
+                                    role: member.role,
+                                });
+                            }
+                        });
                     }
                 });
-            }
-            
-            // & also fetch all professionals to include those not in groups
-            try {
-                const professionalsResponse = await authAPI.getProfessionals({ limit: 200 });
-                if (professionalsResponse && professionalsResponse.success) {
-                    // merge w/ group members, need to acount duplicates
-                    const memberIds = new Set(allMembers.map(m => m.professional_id));
-                    professionalsResponse.professionals.forEach(prof => {
-                        if (!memberIds.has(prof.professional_id)) {
-                            allMembers.push({
-                                professional_id: prof.professional_id,
-                                name: prof.name,
-                                email: prof.email,
-                                role: prof.role,
-                            });
-                        }
-                    });
-                }
-            } catch (profError) {
-                console.warn('Could not fetch all professionals, using group members only:', profError.message);
             }
             
             setProfessionals(allMembers);
@@ -231,18 +230,44 @@ const TaskScreen = ({ navigation }) => {
             p.email.toLowerCase().includes(newTask.assignTo.toLowerCase())
         );
 
-        // if not found in local list, try to search by email on backend
-        if (!assignedProfessional && newTask.assignTo.includes('@')) {
+        console.log('Found locally?', !!assignedProfessional);
+
+        // if not found in local list, try to search through all groups
+        if (!assignedProfessional) {
             try {
-                const searchResponse = await authAPI.getProfessionals({ 
-                    search: newTask.assignTo, 
-                    limit: 1 
-                });
-                if (searchResponse && searchResponse.success && searchResponse.professionals.length > 0) {
-                    assignedProfessional = searchResponse.professionals[0];
+                // Fetch all groups with members to search
+                const searchResponse = await groupAPI.getGroups({ include_members: true });
+                
+                if (searchResponse && searchResponse.success && searchResponse.groups) {
+                    // Search through all group members by name or email
+                    for (let i = 0; i < searchResponse.groups.length; i++) {
+                        const group = searchResponse.groups[i];
+                        if (group.members) {
+                            for (let j = 0; j < group.members.length; j++) {
+                                const member = group.members[j];
+                                const emailMatch = member.email && member.email.toLowerCase() === newTask.assignTo.toLowerCase();
+                                const nameMatch = member.name && member.name.toLowerCase().includes(newTask.assignTo.toLowerCase());
+                                
+                                if (emailMatch || nameMatch) {
+                                    assignedProfessional = {
+                                        professional_id: member.professional_id,
+                                        name: member.name,
+                                        email: member.email,
+                                        role: member.role,
+                                    };
+                                    break;
+                                }
+                            }
+                            
+                            if (assignedProfessional) {
+                                break;
+                            }
+                        }
+                    } 
                 }
             } catch (searchError) {
-                console.warn('Could not search for professional:', searchError.message);
+                Alert.alert("Error", "Could not find professional. Please enter a valid name or email (e.g., angie@pennmert.org).");
+                return;
             }
         }
 

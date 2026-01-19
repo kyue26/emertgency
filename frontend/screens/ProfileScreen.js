@@ -1,34 +1,92 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import React, { useState, useEffect, useContext } from "react";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
 import { FontAwesome5, MaterialIcons, Feather } from '@expo/vector-icons'; // Assuming you use expo vector icons or similar
 import styles from "../styles/ProfileScreenStyles";
-
-// *** Dummy Data & State for Demonstration ***
-const profileData = {
-  name: "Maya Huizar",
-  title: "EMT",
-  email: "huizar@pennmert.upenn.edu",
-  pendingTasks: 0,
-  activeTasks: 0,
-  totalTasks: 0,
-  isUserOnDuty: false, // Start as Off Duty to match initial profile screenshot
-  checkInTime: "Nov 30, 12:48 PM", // Updated to match your screenshot
-  checkOutTime: "Nov 30, 12:48 PM", // Updated to match your screenshot
-  duration: "0h 0m",
-  todayShifts: 1,
-  todayStatus: "Inactive",
-};
+import { getStoredUser, authAPI, taskAPI } from "../services/api";
+import { AuthContext } from "../App";
 
 const ProfileScreen = ({ navigation }) => {
-  // Use state to manage duty status
-  const [isUserOnDuty, setIsUserOnDuty] = useState(profileData.isUserOnDuty);
-  const [shiftData, setShiftData] = useState({
-      checkIn: profileData.checkInTime,
-      checkOut: profileData.checkOutTime,
-      duration: profileData.duration,
-      todayShifts: profileData.todayShifts,
-      todayStatus: profileData.todayStatus,
+  const { handleLogout } = useContext(AuthContext);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [taskStats, setTaskStats] = useState({
+    pending: 0,
+    active: 0,
+    total: 0,
   });
+  const [isUserOnDuty, setIsUserOnDuty] = useState(false);
+  const [shiftData, setShiftData] = useState({
+    checkIn: "Not set",
+    checkOut: "Not set",
+    duration: "0h 0m",
+    todayShifts: 0,
+    todayStatus: "Inactive",
+  });
+
+  // Load user data and tasks on mount
+  useEffect(() => {
+    loadUserData();
+    loadTaskStats();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const userData = await getStoredUser();
+      if (userData) {
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error("Error loading user data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadTaskStats = async () => {
+    try {
+      const response = await taskAPI.getTasks({ my_tasks: true });
+      if (response.success && response.tasks) {
+        const tasks = response.tasks;
+        const pending = tasks.filter(t => t.status === 'pending').length;
+        const active = tasks.filter(t => t.status === 'in_progress').length;
+        setTaskStats({
+          pending,
+          active,
+          total: tasks.length,
+        });
+      }
+    } catch (error) {
+      console.error("Error loading task stats:", error);
+    }
+  };
+
+  const handleLogoutPress = async () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // Clear user state
+              setUser(null);
+              // Use the logout handler from AuthContext which will update App.js state
+              await handleLogout();
+            } catch (error) {
+              console.error("Logout error:", error);
+              Alert.alert("Error", "Failed to logout. Please try again.");
+            }
+          }
+        }
+      ]
+    );
+  };
 
   // Function to simulate checking in/out
   const toggleDutyStatus = () => {
@@ -65,6 +123,22 @@ const ProfileScreen = ({ navigation }) => {
       <Feather name="x-circle" size={20} color="#DC3545" /> // Red X for Off Duty
   );
 
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#011F5B" />
+      </View>
+    );
+  }
+
+  if (!user) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ color: '#011F5B' }}>Unable to load user information</Text>
+      </View>
+    );
+  }
+
   return (
     // The ScrollView ensures the content can be scrolled
     <ScrollView contentContainerStyle={styles.container}>
@@ -76,14 +150,14 @@ const ProfileScreen = ({ navigation }) => {
         </View>
         
         {/* Name and Details */}
-        <Text style={styles.name}>{profileData.name}</Text>
+        <Text style={styles.name}>{user.name || "User"}</Text>
         <View style={styles.detailRow}>
             <FontAwesome5 name="suitcase" size={12} color="#011F5B" />
-            <Text style={styles.title}>{profileData.title}</Text>
+            <Text style={styles.title}>{user.role || "MERT Member"}</Text>
         </View>
         <View style={styles.detailRow}>
             <MaterialIcons name="email" size={14} color="#011F5B" />
-            <Text style={styles.email}>{profileData.email}</Text>
+            <Text style={styles.email}>{user.email || ""}</Text>
         </View>
       </View>
 
@@ -99,15 +173,15 @@ const ProfileScreen = ({ navigation }) => {
         </View>
         <View style={styles.taskStatsRow}>
           <View style={[styles.taskStat, styles.taskStatPending]}>
-            <Text style={[styles.taskStatNumber, styles.pendingNumber]}>{profileData.pendingTasks}</Text>
+            <Text style={[styles.taskStatNumber, styles.pendingNumber]}>{taskStats.pending}</Text>
             <Text style={[styles.taskStatLabel, styles.pendingLabel]}>Pending</Text>
           </View>
           <View style={[styles.taskStat, styles.taskStatActive]}>
-            <Text style={[styles.taskStatNumber, styles.activeNumber]}>{profileData.activeTasks}</Text>
+            <Text style={[styles.taskStatNumber, styles.activeNumber]}>{taskStats.active}</Text>
             <Text style={[styles.taskStatLabel, styles.activeLabel]}>Active</Text>
           </View>
           <View style={[styles.taskStat, styles.taskStatTotal]}>
-            <Text style={[styles.taskStatNumber, styles.totalNumber]}>{profileData.totalTasks}</Text>
+            <Text style={[styles.taskStatNumber, styles.totalNumber]}>{taskStats.total}</Text>
             <Text style={[styles.taskStatLabel, styles.totalLabel]}>Total</Text>
           </View>
         </View>
@@ -161,7 +235,7 @@ const ProfileScreen = ({ navigation }) => {
       </View>
       
       {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutButton}>
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogoutPress}>
           <Feather name="log-out" size={20} color={styles.logoutButtonText.color} style={{marginRight: 8}} />
           <Text style={styles.logoutButtonText}>Logout</Text>
       </TouchableOpacity>
