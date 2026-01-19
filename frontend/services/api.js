@@ -85,7 +85,11 @@ const apiRequest = async (endpoint, options = {}) => {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      // Attach the full error response to the error object
+      const error = new Error(data.message || `An error occurred: ${response.status}`);
+      error.response = data;
+      error.status = response.status;
+      throw error;
     }
 
     return data;

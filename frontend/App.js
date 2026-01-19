@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, createContext } from 'react';
 import  { View, Text, TouchableOpacity} from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
@@ -24,6 +24,9 @@ import {
   Poppins_700Bold,
 } from "@expo-google-fonts/poppins";
 import GuideScreen from './screens/GuideScreen';
+
+// creating auth context to handle auth state
+export const AuthContext = createContext();
 
 const Tab = createBottomTabNavigator();
 const AuthStack = createNativeStackNavigator();
@@ -325,9 +328,12 @@ export default function App() {
         const token = await getStoredToken();
         if (token) {
           setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
         }
       } catch (error) {
         console.error('Error checking auth:', error);
+        setIsAuthenticated(false);
       } finally {
         setIsLoading(false);
       }
@@ -335,24 +341,37 @@ export default function App() {
     checkAuth();
   }, []);
 
+  // handle logging out
+  const handleLogout = async () => {
+    try {
+      const { authAPI } = require('./services/api');
+      await authAPI.logout();
+      setIsAuthenticated(false);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
   if (!fontsLoaded || isLoading) {
     return null; // or a loading screen
   }
 
   return (
-    <NavigationContainer>
-      <AuthStack.Navigator screenOptions={{ headerShown: false }}>
-        {!isAuthenticated ? (
-          <AuthStack.Screen name="Landing">
-            {(props) => (
-              <LandingScreen {...props} onAuthSuccess={() => setIsAuthenticated(true)} />
-            )}
-          </AuthStack.Screen>
-        ) : (
-    
-          <AuthStack.Screen name="MainApp" component={MainTabNavigator} />
-        )}
-      </AuthStack.Navigator>
-    </NavigationContainer>
+    <AuthContext.Provider value={{ isAuthenticated, setIsAuthenticated, handleLogout }}>
+      <NavigationContainer>
+        <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+          {!isAuthenticated ? (
+            <AuthStack.Screen name="Landing">
+              {(props) => (
+                <LandingScreen {...props} onAuthSuccess={() => setIsAuthenticated(true)} />
+              )}
+            </AuthStack.Screen>
+          ) : (
+      
+            <AuthStack.Screen name="MainApp" component={MainTabNavigator} />
+          )}
+        </AuthStack.Navigator>
+      </NavigationContainer>
+    </AuthContext.Provider>
   );
 }
