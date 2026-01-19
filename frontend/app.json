@@ -3,7 +3,7 @@
     "name": "frontend",
     "slug": "frontend",
     "version": "1.0.0",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "assetBundlePatterns": [
       "**/*"
     ],

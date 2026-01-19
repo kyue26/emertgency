@@ -25,6 +25,8 @@ import {
 } from "@expo-google-fonts/poppins";
 import GuideScreen from './screens/GuideScreen';
 
+import { AuthProvider, useAuth } from './context/AuthContext';
+
 const Tab = createBottomTabNavigator();
 const AuthStack = createNativeStackNavigator();
 // const CommanderTodoStack = createNativeStackNavigator();
@@ -233,8 +235,8 @@ function MainTabNavigator() {
   );
 }
 
-export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+function AppContent() {
+  const { isAuthenticated, isLoading } = useAuth();
   const [fontsLoaded] = useFonts({
     Poppins_300Light,
     Poppins_400Regular,
@@ -243,8 +245,12 @@ export default function App() {
     Poppins_700Bold,
   });
 
-  if (!fontsLoaded) {
-    return null; // or a loading screen
+  if (!fontsLoaded || isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#B5C8E8' }}>
+        <Text style={{ fontSize: 18, color: '#011F5B' }}>Loading...</Text>
+      </View>
+    );
   }
 
   return (
@@ -253,14 +259,24 @@ export default function App() {
         {!isAuthenticated ? (
           <AuthStack.Screen name="Landing">
             {(props) => (
-              <LandingScreen {...props} onAuthSuccess={() => setIsAuthenticated(true)} />
+              <LandingScreen 
+                {...props} 
+                onAuthSuccess={() => {}} // Auth is handled by context
+              />
             )}
           </AuthStack.Screen>
         ) : (
-    
           <AuthStack.Screen name="MainApp" component={MainTabNavigator} />
         )}
       </AuthStack.Navigator>
     </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
