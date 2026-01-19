@@ -1,61 +1,17 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   TextInput,
   FlatList,
   StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import styles from "../styles/MembersScreenStyles";
-
-const mockMembers = [
-  {
-    id: "1",
-    name: "Angie Cao",
-    phone: "503-222-2222",
-    email: "angiecao@seas.upenn.edu",
-    status: "available",
-    distance: "0.2 mi away",
-    role: "medic",
-  },
-  {
-    id: "2",
-    name: "Emily Kang",
-    phone: "443-467-7759",
-    email: "emkang@seas.upenn.edu",
-    status: "on_the_way",
-    distance: "1.5 mi away",
-    role: "operator",
-  },
-  {
-    id: "3",
-    name: "Katherine Yue",
-    phone: "498-230-4938",
-    email: "kyue@seas.upenn.edu",
-    status: "available",
-    distance: "0.4 mi away",
-    role: "firetruck",
-  },
-  {
-    id: "4",
-    name: "Luna Chen",
-    phone: "213-667-9254",
-    email: "lchen@seas.upenn.edu",
-    status: "unavailable",
-    distance: "--",
-    role: "medic",
-  },
-  {
-    id: "5",
-    name: "Maya Huizar",
-    phone: "676-667-6767",
-    email: "maya@seas.upenn.edu",
-    status: "unavailable",
-    distance: "--",
-    role: "medic",
-  },
-];
+import { groupAPI } from "../services/api";
 
 const getStatusStyle = (status) => {
   switch (status) {
@@ -115,8 +71,51 @@ const MemberCard = ({ member }) => {
 
 const MembersScreen = () => {
   const [query, setQuery] = useState("");
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const filtered = mockMembers.filter((m) => {
+  const loadMembers = async () => {
+    try {
+      const response = await groupAPI.getGroups({ include_members: true });
+      if (response.success) {
+        const allMembers = [];
+        response.groups.forEach(group => {
+          if (group.members) {
+            group.members.forEach(member => {
+              allMembers.push({
+                id: member.professional_id,
+                name: member.name,
+                phone: member.phone_number || 'N/A',
+                email: member.email,
+                status: member.current_camp_id ? 'on_the_way' : 'available', // Simplified status
+                distance: member.current_camp_id ? 'At camp' : 'Available',
+                role: member.role?.toLowerCase() || 'medic',
+              });
+            });
+          }
+        });
+        setMembers(allMembers);
+      }
+    } catch (error) {
+      console.error('Error loading members:', error);
+      Alert.alert("Error", "Failed to load members.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMembers();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadMembers();
+  };
+
+  const filtered = members.filter((m) => {
     const q = query.toLowerCase();
     return (
       m.name.toLowerCase().includes(q) ||
@@ -125,11 +124,19 @@ const MembersScreen = () => {
     );
   });
 
+  if (loading && !refreshing) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#011F5B" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* title */}
       <View style={styles.titleBox}>
-        <Text style={styles.title}>Casualty #2 Members</Text>
+        <Text style={styles.title}>Team Members ({members.length})</Text>
       </View>
 
       {/* search */}
@@ -151,6 +158,14 @@ const MembersScreen = () => {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <MemberCard member={item} />}
         contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        ListEmptyComponent={
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <Text style={{ color: '#888', fontSize: 16 }}>No members found</Text>
+          </View>
+        }
       />
     </View>
   );

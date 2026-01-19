@@ -7,19 +7,69 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import landingStyles from "../styles/LandingScreenStyles";
+import { authAPI } from "../services/api";
 
 export default function LandingScreen({ onAuthSuccess }) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [name, setName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleAuth = () => {
-    // Placeholder for future authentication logic
-    // When successful, this triggers the main app
-    onAuthSuccess();
+  const handleAuth = async () => {
+    if (!email || !password) {
+      Alert.alert("Error", "Please fill in all required fields");
+      return;
+    }
+
+    if (isSignUp) {
+      if (password !== confirmPassword) {
+        Alert.alert("Error", "Passwords do not match");
+        return;
+      }
+      if (!name) {
+        Alert.alert("Error", "Please enter your name");
+        return;
+      }
+      if (password.length < 12) {
+        Alert.alert("Error", "Password must be at least 12 characters long");
+        return;
+      }
+    }
+
+    setLoading(true);
+    try {
+      let response;
+      if (isSignUp) {
+        response = await authAPI.register(
+          name,
+          email,
+          password,
+          phoneNumber || undefined,
+          undefined // role, defaults to 'MERT Member'
+        );
+      } else {
+        response = await authAPI.login(email, password);
+      }
+
+      if (response.success) {
+        Alert.alert("Success", isSignUp ? "Account created successfully!" : "Login successful!");
+        onAuthSuccess();
+      } else {
+        Alert.alert("Error", response.message || "Authentication failed");
+      }
+    } catch (error) {
+      console.error("Auth error:", error);
+      Alert.alert("Error", error.message || "An error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -38,6 +88,16 @@ export default function LandingScreen({ onAuthSuccess }) {
 
       {/* Input Fields */}
       <View style={styles.inputContainer}>
+        {isSignUp && (
+          <TextInput
+            style={styles.input}
+            placeholder="Name"
+            placeholderTextColor="#D9E1F2"
+            value={name}
+            onChangeText={setName}
+            autoCapitalize="words"
+          />
+        )}
         <TextInput
           style={styles.input}
           placeholder="Email"
@@ -45,7 +105,18 @@ export default function LandingScreen({ onAuthSuccess }) {
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
+          keyboardType="email-address"
         />
+        {isSignUp && (
+          <TextInput
+            style={styles.input}
+            placeholder="Phone Number (Optional)"
+            placeholderTextColor="#D9E1F2"
+            value={phoneNumber}
+            onChangeText={setPhoneNumber}
+            keyboardType="phone-pad"
+          />
+        )}
         <TextInput
           style={styles.input}
           placeholder="Password"
@@ -67,10 +138,18 @@ export default function LandingScreen({ onAuthSuccess }) {
       </View>
 
       {/* Auth Button */}
-      <TouchableOpacity style={styles.button} onPress={handleAuth}>
-        <Text style={styles.buttonText}>
-          {isSignUp ? "Create Account" : "Log In"}
-        </Text>
+      <TouchableOpacity 
+        style={[styles.button, loading && styles.buttonDisabled]} 
+        onPress={handleAuth}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>
+            {isSignUp ? "Create Account" : "Log In"}
+          </Text>
+        )}
       </TouchableOpacity>
 
       {/* Toggle Between Login / Signup */}
@@ -141,5 +220,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "500",
     marginTop: 20,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });

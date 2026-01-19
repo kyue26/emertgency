@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,8 +6,13 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { casualtyAPI, eventAPI } from "../services/api";
+import { transformCasualties } from "../utils/casualtyTransform";
 
 const triageConfig = {
   green: { label: "Minor", color: "#22c55e" },
@@ -17,20 +22,63 @@ const triageConfig = {
 };
 
 export default function CasualtyListScreen({ route, navigation }) {
-  const { casualties = [] } = route.params || {};
-
+  const [casualties, setCasualties] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterLevel, setFilterLevel] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeEventId, setActiveEventId] = useState(null);
+
+  const loadCasualties = async () => {
+    try {
+      // get active event first
+      const eventsResponse = await eventAPI.getEvents({ status: 'in_progress', limit: 1 });
+      
+      if (eventsResponse.success && eventsResponse.events.length > 0) {
+        const event = eventsResponse.events[0];
+        setActiveEventId(event.event_id);
+        
+        // get casualties
+        const params = { event_id: event.event_id, limit: 100 };
+        if (filterLevel !== 'all') {
+          params.color = filterLevel;
+        }
+        
+        const response = await casualtyAPI.getCasualties(params);
+        
+        if (response.success) {
+          // transofrm using utility
+          const transformed = transformCasualties(response.casualties);
+          setCasualties(transformed);
+        }
+      } else {
+        setCasualties([]);
+      }
+    } catch (error) {
+      console.error('Error loading casualties:', error);
+      Alert.alert("Error", "Failed to load casualties.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCasualties();
+  }, [filterLevel]); // reload when filter changes
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadCasualties();
+  };
 
   const filteredCasualties = casualties.filter((c) => {
     const matchesSearch =
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.location.toLowerCase().includes(searchTerm.toLowerCase());
+      c.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (c.injuries && c.injuries.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const matchesFilter =
-      filterLevel === "all" || c.triageLevel === filterLevel;
-
-    return matchesSearch && matchesFilter;
+    return matchesSearch; // filter level is already applied in API call
   });
 
   const formatTime = (date) =>
@@ -39,9 +87,22 @@ export default function CasualtyListScreen({ route, navigation }) {
       minute: "2-digit",
     });
 
+  if (loading && !refreshing) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#011f5b" />
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>All Casualties ({casualties.length})</Text>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      <Text style={styles.title}>All Casualties ({filteredCasualties.length})</Text>
 
       {/* --- SEARCH BAR --- */}
       <View style={styles.searchWrapper}>
@@ -121,7 +182,7 @@ export default function CasualtyListScreen({ route, navigation }) {
             <TouchableOpacity
               key={c.id}
               style={styles.casualtyCard}
-              onPress={() => navigation.navigate("Detail", { id: c.id })}
+              onPress={() => navigation.navigate("CasualtyDetail", { casualty: c.original || c })}
             >
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -139,16 +200,16 @@ export default function CasualtyListScreen({ route, navigation }) {
                 <View
                   style={[
                     styles.badge,
-                    { backgroundColor: triageConfig[c.triageLevel].color },
+                    { backgroundColor: triageConfig[c.color || c.triageLevel].color },
                   ]}
                 >
                   <Text style={styles.badgeText}>
-                    {triageConfig[c.triageLevel].label}
+                    {triageConfig[c.color || c.triageLevel].label}
                   </Text>
                 </View>
 
                 <Text style={styles.timestampText}>
-                  {formatTime(c.timestamp)}
+                  {formatTime(c.created_at || c.timestamp)}
                 </Text>
               </View>
             </TouchableOpacity>
