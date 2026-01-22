@@ -13,7 +13,7 @@ const checkEventAccess = async (req, res, next) => {
     const result = await pool.query(
       `SELECT e.event_id, e.status,
               EXISTS(
-                SELECT 1 FROM professionals p 
+                SELECT 1 FROM professionals p
                 JOIN camps c ON p.current_camp_id = c.camp_id
                 WHERE c.event_id = e.event_id AND p.professional_id = $1
               ) as has_access
@@ -26,12 +26,12 @@ const checkEventAccess = async (req, res, next) => {
     }
 
     const event = result.rows[0];
-    
+
     // Commanders can access any event, others need to be assigned
     if (req.user.role !== 'Commander' && !event.has_access) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'You do not have access to this event' 
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this event'
       });
     }
 
@@ -47,7 +47,7 @@ const checkEventAccess = async (req, res, next) => {
 const logCasualtyChange = async (client, casualtyId, professionalId, changes, previousState) => {
   try {
     await client.query(
-      `INSERT INTO casualty_audit_log 
+      `INSERT INTO casualty_audit_log
        (casualty_id, changed_by, changes, previous_state, changed_at)
        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
       [casualtyId, professionalId, JSON.stringify(changes), JSON.stringify(previousState)]
@@ -85,7 +85,7 @@ router.get('/', authenticateToken, [
       conditions.push(`EXISTS(
         SELECT 1 FROM camps c
         JOIN professionals p ON p.current_camp_id = c.camp_id
-        WHERE c.event_id = ip.event_id 
+        WHERE c.event_id = ip.event_id
         AND p.professional_id = $${paramCount++}
       )`);
       params.push(req.user.professional_id);
@@ -108,8 +108,8 @@ router.get('/', authenticateToken, [
     params.push(limit, offset);
 
     const query = `
-      SELECT ip.*, 
-             e.name as event_name, 
+      SELECT ip.*,
+             e.name as event_name,
              e.status as event_status,
              c.location_name as camp_location,
              c.camp_id
@@ -117,12 +117,12 @@ router.get('/', authenticateToken, [
       LEFT JOIN events e ON ip.event_id = e.event_id
       LEFT JOIN camps c ON ip.camp_id = c.camp_id
       WHERE ${conditions.join(' AND ')}
-      ORDER BY 
-        CASE ip.color 
-          WHEN 'red' THEN 1 
-          WHEN 'yellow' THEN 2 
-          WHEN 'green' THEN 3 
-          WHEN 'black' THEN 4 
+      ORDER BY
+        CASE ip.color
+          WHEN 'red' THEN 1
+          WHEN 'yellow' THEN 2
+          WHEN 'green' THEN 3
+          WHEN 'black' THEN 4
         END,
         ip.created_at DESC
       LIMIT $${paramCount++} OFFSET $${paramCount++}
@@ -156,8 +156,8 @@ router.get('/', authenticateToken, [
     });
   } catch (error) {
     console.error('Get casualties error:', error.message);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'Failed to retrieve casualties',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -176,7 +176,7 @@ router.post('/add', authenticateToken, checkEventAccess, [
   body('other_information').optional().trim().isLength({ max: 1000 })
 ], async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -209,9 +209,9 @@ router.post('/add', authenticateToken, checkEventAccess, [
 
     if (eventCheck.rows[0].status === 'finished') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Cannot add casualties to finished events' 
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot add casualties to finished events'
       });
     }
 
@@ -229,9 +229,9 @@ router.post('/add', authenticateToken, checkEventAccess, [
 
       if (campCheck.rows[0].event_id !== event_id) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Camp does not belong to specified event' 
+        return res.status(400).json({
+          success: false,
+          message: 'Camp does not belong to specified event'
         });
       }
     }
@@ -239,14 +239,14 @@ router.post('/add', authenticateToken, checkEventAccess, [
     const injured_person_id = `inj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const result = await client.query(
-      `INSERT INTO injured_persons 
-       (injured_person_id, event_id, camp_id, color, breathing, conscious, bleeding, 
+      `INSERT INTO injured_persons
+       (injured_person_id, event_id, camp_id, color, breathing, conscious, bleeding,
         hospital_status, other_information, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
        RETURNING *`,
       [
-        injured_person_id, event_id, camp_id, color, 
-        breathing ?? null, conscious ?? null, bleeding ?? null, 
+        injured_person_id, event_id, camp_id, color,
+        breathing ?? null, conscious ?? null, bleeding ?? null,
         hospital_status || null, other_information || null,
         req.user.professional_id
       ]
@@ -254,8 +254,8 @@ router.post('/add', authenticateToken, checkEventAccess, [
 
     // Log the creation
     await logCasualtyChange(
-      client, 
-      injured_person_id, 
+      client,
+      injured_person_id,
       req.user.professional_id,
       { action: 'created', ...req.body },
       null
@@ -271,17 +271,17 @@ router.post('/add', authenticateToken, checkEventAccess, [
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Add casualty error:', error.message);
-    
+
     // Handle specific errors
     if (error.code === '23503') { // Foreign key violation
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid event_id or camp_id' 
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid event_id or camp_id'
       });
     }
-    
-    res.status(500).json({ 
-      success: false, 
+
+    res.status(500).json({
+      success: false,
       message: 'Failed to add casualty',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -302,7 +302,7 @@ router.put('/update/:casualtyId/status', authenticateToken, [
   body('camp_id').optional().trim()
 ], async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -349,9 +349,9 @@ router.put('/update/:casualtyId/status', authenticateToken, [
 
       if (accessCheck.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(403).json({ 
-          success: false, 
-          message: 'You do not have access to modify this casualty' 
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to modify this casualty'
         });
       }
     }
@@ -359,9 +359,9 @@ router.put('/update/:casualtyId/status', authenticateToken, [
     // Prevent modification of casualties in finished events
     if (casualty.event_status === 'finished') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Cannot modify casualties in finished events' 
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot modify casualties in finished events'
       });
     }
 
@@ -379,9 +379,9 @@ router.put('/update/:casualtyId/status', authenticateToken, [
 
       if (campCheck.rows[0].event_id !== casualty.event_id) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Cannot transfer casualty to camp in different event' 
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot transfer casualty to camp in different event'
         });
       }
     }
@@ -439,8 +439,8 @@ router.put('/update/:casualtyId/status', authenticateToken, [
     values.push(casualtyId);
 
     const result = await client.query(
-      `UPDATE injured_persons SET ${updates.join(', ')} 
-       WHERE injured_person_id = $${paramCount} 
+      `UPDATE injured_persons SET ${updates.join(', ')}
+       WHERE injured_person_id = $${paramCount}
        RETURNING *`,
       values
     );
@@ -465,16 +465,16 @@ router.put('/update/:casualtyId/status', authenticateToken, [
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Update casualty error:', error.message);
-    
+
     if (error.code === '23503') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid camp_id' 
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid camp_id'
       });
     }
-    
-    res.status(500).json({ 
-      success: false, 
+
+    res.status(500).json({
+      success: false,
       message: 'Failed to update casualty',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -521,10 +521,94 @@ router.get('/:casualtyId/history', authenticateToken, [
     });
   } catch (error) {
     console.error('Get casualty history error:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to retrieve history' 
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve history'
     });
+  }
+});
+
+// DELETE /casualties/:casualtyId
+router.delete('/:casualtyId', authenticateToken, [
+  param('casualtyId').notEmpty().trim()
+], async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { casualtyId } = req.params;
+
+    await client.query('BEGIN');
+
+    // Get current state for authorization check
+    const currentState = await client.query(
+      `SELECT ip.*, e.status as event_status
+       FROM injured_persons ip
+       JOIN events e ON ip.event_id = e.event_id
+       WHERE ip.injured_person_id = $1`,
+      [casualtyId]
+    );
+
+    if (currentState.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Casualty not found' });
+    }
+
+    const casualty = currentState.rows[0];
+
+    // Check access rights - only Commander or the person who created it can delete
+    if (req.user.role !== 'Commander' && casualty.created_by !== req.user.professional_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to delete this casualty'
+      });
+    }
+
+    // Prevent deletion of casualties in finished events
+    if (casualty.event_status === 'finished') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete casualties in finished events'
+      });
+    }
+
+    // Log the deletion before removing
+    await logCasualtyChange(
+      client,
+      casualtyId,
+      req.user.professional_id,
+      { action: 'deleted' },
+      casualty
+    );
+
+    // Delete the casualty
+    await client.query(
+      'DELETE FROM injured_persons WHERE injured_person_id = $1',
+      [casualtyId]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Casualty deleted successfully'
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Delete casualty error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete casualty',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
   }
 });
 
