@@ -1,4 +1,5 @@
-
+DROP TABLE IF EXISTS resource_request_audit_log CASCADE;
+DROP TABLE IF EXISTS resource_requests CASCADE;
 DROP TABLE IF EXISTS task_audit_log CASCADE;
 DROP TABLE IF EXISTS group_audit_log CASCADE;
 DROP TABLE IF EXISTS event_audit_log CASCADE;
@@ -12,6 +13,16 @@ DROP TABLE IF EXISTS event_groups CASCADE;
 DROP TABLE IF EXISTS camps CASCADE;
 DROP TABLE IF EXISTS groups CASCADE;
 DROP TABLE IF EXISTS events CASCADE;
+DROP TABLE IF EXISTS hospitals CASCADE;
+
+DROP VIEW IF EXISTS active_events_view CASCADE;
+DROP VIEW IF EXISTS professional_task_summary CASCADE;
+DROP VIEW IF EXISTS group_membership_view CASCADE;
+DROP VIEW IF EXISTS casualty_statistics_view CASCADE;
+
+DROP FUNCTION IF EXISTS update_updated_at_column CASCADE;
+DROP FUNCTION IF EXISTS check_group_capacity CASCADE;
+DROP FUNCTION IF EXISTS check_camp_capacity CASCADE;
 
 CREATE TABLE events (
     event_id VARCHAR(50) PRIMARY KEY,
@@ -79,6 +90,7 @@ CREATE INDEX idx_professionals_group ON professionals(group_id);
 CREATE INDEX idx_professionals_camp ON professionals(current_camp_id);
 CREATE INDEX idx_professionals_role ON professionals(role);
 
+-- Add foreign key constraints after professionals table exists
 ALTER TABLE groups 
 ADD CONSTRAINT fk_lead_professional 
 FOREIGN KEY (lead_professional_id) 
@@ -185,6 +197,7 @@ CREATE INDEX idx_tasks_priority ON tasks(priority);
 CREATE INDEX idx_tasks_due_date ON tasks(due_date);
 CREATE INDEX idx_tasks_created_at ON tasks(created_at DESC);
 
+-- AUDIT LOG TABLES
 
 CREATE TABLE event_audit_log (
     id SERIAL PRIMARY KEY,
@@ -235,6 +248,8 @@ CREATE TABLE task_audit_log (
 CREATE INDEX idx_task_audit_task ON task_audit_log(task_id);
 CREATE INDEX idx_task_audit_changed_at ON task_audit_log(changed_at DESC);
 
+-- HOSPITALS TABLE
+
 CREATE TABLE hospitals (
     hospital_id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -258,6 +273,42 @@ INSERT INTO hospitals (name, distance, trauma_level, is_active) VALUES
     ('Pennsylvania Hospital', '1.8 miles', 2, true),
     ('Jefferson Hospital', '2.5 miles', 1, true);
 
+-- RESOURCE REQUESTS TABLES
+
+CREATE TABLE resource_requests (
+    resource_request_id VARCHAR(50) PRIMARY KEY,
+    event_id VARCHAR(50) NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+    resource_name VARCHAR(255) NOT NULL,
+    quantity INTEGER DEFAULT 1 CHECK (quantity >= 1),
+    priority VARCHAR(20) DEFAULT 'medium',
+    confirmed BOOLEAN DEFAULT false,
+    time_of_arrival TIMESTAMP,
+    notes TEXT CHECK (length(notes) <= 1000),
+    requested_by VARCHAR(50) REFERENCES professionals(professional_id) ON DELETE SET NULL,
+    confirmed_by VARCHAR(50) REFERENCES professionals(professional_id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT check_resource_priority CHECK (priority IN ('low', 'medium', 'high', 'critical'))
+);
+
+CREATE INDEX idx_resource_requests_event ON resource_requests(event_id);
+CREATE INDEX idx_resource_requests_confirmed ON resource_requests(confirmed);
+CREATE INDEX idx_resource_requests_priority ON resource_requests(priority);
+CREATE INDEX idx_resource_requests_created_at ON resource_requests(created_at DESC);
+
+CREATE TABLE resource_request_audit_log (
+    id SERIAL PRIMARY KEY,
+    resource_request_id VARCHAR(50) REFERENCES resource_requests(resource_request_id) ON DELETE CASCADE,
+    action VARCHAR(50) NOT NULL,
+    changed_by VARCHAR(50) REFERENCES professionals(professional_id) ON DELETE SET NULL,
+    details JSONB,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_resource_audit_request ON resource_request_audit_log(resource_request_id);
+CREATE INDEX idx_resource_audit_changed_at ON resource_request_audit_log(changed_at DESC);
+
+-- VIEWS
 
 CREATE VIEW active_events_view AS
 SELECT 
@@ -285,7 +336,6 @@ FROM professionals p
 LEFT JOIN tasks t ON p.professional_id = t.assigned_to
 GROUP BY p.professional_id, p.name, p.email;
 
--- Group membership view
 CREATE VIEW group_membership_view AS
 SELECT 
     g.group_id,
@@ -315,8 +365,22 @@ FROM events e
 LEFT JOIN injured_persons ip ON e.event_id = ip.event_id
 GROUP BY e.event_id, e.name, e.status;
 
+CREATE VIEW resource_requests_summary_view AS
+SELECT 
+    e.event_id,
+    e.name as event_name,
+    e.status as event_status,
+    COUNT(rr.resource_request_id) as total_requests,
+    COUNT(CASE WHEN rr.confirmed = true THEN 1 END) as confirmed_requests,
+    COUNT(CASE WHEN rr.confirmed = false THEN 1 END) as pending_requests,
+    COUNT(CASE WHEN rr.priority = 'critical' AND rr.confirmed = false THEN 1 END) as critical_pending,
+    COUNT(CASE WHEN rr.priority = 'high' AND rr.confirmed = false THEN 1 END) as high_pending
+FROM events e
+LEFT JOIN resource_requests rr ON e.event_id = rr.event_id
+GROUP BY e.event_id, e.name, e.status;
 
--- Function to update updated_at timestamp
+-- FUNCTIONS
+
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -324,27 +388,6 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
-CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON events
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_camps_updated_at BEFORE UPDATE ON camps
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_groups_updated_at BEFORE UPDATE ON groups
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_professionals_updated_at BEFORE UPDATE ON professionals
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_injured_persons_updated_at BEFORE UPDATE ON injured_persons
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON tasks
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_hospitals_updated_at BEFORE UPDATE ON hospitals
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE OR REPLACE FUNCTION check_group_capacity()
 RETURNS TRIGGER AS $$
@@ -368,11 +411,6 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
-CREATE TRIGGER check_group_capacity_trigger
-    BEFORE INSERT OR UPDATE OF group_id ON professionals
-    FOR EACH ROW
-    EXECUTE FUNCTION check_group_capacity();
 
 CREATE OR REPLACE FUNCTION check_camp_capacity()
 RETURNS TRIGGER AS $$
@@ -399,14 +437,49 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- TRIGGERS (after functions are defined)
+
+CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON events
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_camps_updated_at BEFORE UPDATE ON camps
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_groups_updated_at BEFORE UPDATE ON groups
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_professionals_updated_at BEFORE UPDATE ON professionals
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_injured_persons_updated_at BEFORE UPDATE ON injured_persons
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON tasks
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_hospitals_updated_at BEFORE UPDATE ON hospitals
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_resource_requests_updated_at BEFORE UPDATE ON resource_requests
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER check_group_capacity_trigger
+    BEFORE INSERT OR UPDATE OF group_id ON professionals
+    FOR EACH ROW
+    EXECUTE FUNCTION check_group_capacity();
+
 CREATE TRIGGER check_camp_capacity_trigger
     BEFORE INSERT OR UPDATE OF current_camp_id ON professionals
     FOR EACH ROW
     EXECUTE FUNCTION check_camp_capacity();
 
+-- PERMISSIONS
+
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO emert;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO emert;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO emert;
+
+-- VERIFICATION QUERIES
 
 SELECT table_name, table_type 
 FROM information_schema.tables 
@@ -421,7 +494,8 @@ UNION ALL SELECT 'professionals', COUNT(*) FROM professionals
 UNION ALL SELECT 'professional_passwords', COUNT(*) FROM professional_passwords
 UNION ALL SELECT 'injured_persons', COUNT(*) FROM injured_persons
 UNION ALL SELECT 'tasks', COUNT(*) FROM tasks
-UNION ALL SELECT 'hospitals', COUNT(*) FROM hospitals;
+UNION ALL SELECT 'hospitals', COUNT(*) FROM hospitals
+UNION ALL SELECT 'resource_requests', COUNT(*) FROM resource_requests;
 
 SELECT 
     tablename,
