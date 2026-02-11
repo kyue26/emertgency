@@ -132,27 +132,32 @@ const getTriagePriority = (totalScore) => {
 const AddPersonScreen = ({ navigation }) => {
   const [form, setForm] = useState(INITIAL_FORM_STATE);
   const [activeEventId, setActiveEventId] = useState(null);
+  const [currentEvent, setCurrentEvent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingEvent, setLoadingEvent] = useState(true);
 
-  // get active event on mount
+  // get current event on mount
   useEffect(() => {
-    const fetchActiveEvent = async () => {
+    const fetchCurrentEvent = async () => {
       try {
-        const response = await eventAPI.getEvents({ status: 'in_progress', limit: 1 });
-        if (response.success && response.events.length > 0) {
-          setActiveEventId(response.events[0].event_id);
+        const response = await eventAPI.getCurrentEvent();
+        if (response.success && response.event) {
+          setCurrentEvent(response.event);
+          setActiveEventId(response.event.event_id);
         } else {
-          Alert.alert("No Active Event", "Please create an active event first.");
+          // No current event - don't show alert, just set to null
+          setCurrentEvent(null);
+          setActiveEventId(null);
         }
       } catch (error) {
-        console.error('Error fetching active event:', error);
-        Alert.alert("Error", "Failed to load active event.");
+        console.error('Error fetching current event:', error);
+        setCurrentEvent(null);
+        setActiveEventId(null);
       } finally {
         setLoadingEvent(false);
       }
     };
-    fetchActiveEvent();
+    fetchCurrentEvent();
   }, []);
 
   const handleCancel = () => {
@@ -312,9 +317,24 @@ const AddPersonScreen = ({ navigation }) => {
         <View style={styles.titleBox}>
           <Text style={styles.title}>Add New Casualty</Text>
           {!activeEventId && (
-            <Text style={{ color: '#ef4444', fontSize: 12, marginTop: 4 }}>
-              No active event found
-            </Text>
+            <View style={{ marginTop: 12, padding: 12, backgroundColor: '#FFFBE6', borderRadius: 8, borderWidth: 1, borderColor: '#E6B900' }}>
+              <Text style={{ color: '#011F5B', fontSize: 14, marginBottom: 4, fontWeight: '600' }}>
+                Join an Event to Add Casualties
+              </Text>
+              <Text style={{ color: '#011F5B', fontSize: 12 }}>
+                Go to your Profile to join an event using an invite code.
+              </Text>
+            </View>
+          )}
+          {currentEvent && currentEvent.status !== 'in_progress' && (
+            <View style={{ marginTop: 12, padding: 12, backgroundColor: '#FEF2F2', borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5' }}>
+              <Text style={{ color: '#991B1B', fontSize: 14, marginBottom: 4, fontWeight: '600' }}>
+                Event Not Active
+              </Text>
+              <Text style={{ color: '#991B1B', fontSize: 12 }}>
+                This event is currently {currentEvent.status}. Ask a commander to activate it to start tracking casualties.
+              </Text>
+            </View>
           )}
         </View>
 
