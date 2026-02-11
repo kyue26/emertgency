@@ -31,6 +31,7 @@ CREATE TABLE events (
     start_time TIMESTAMP,
     finish_time TIMESTAMP,
     status VARCHAR(50) DEFAULT 'upcoming',
+    invite_code VARCHAR(20) UNIQUE,
     created_by VARCHAR(50),
     updated_by VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -42,6 +43,7 @@ CREATE TABLE events (
 CREATE INDEX idx_events_status ON events(status);
 CREATE INDEX idx_events_start_time ON events(start_time);
 CREATE INDEX idx_events_created_by ON events(created_by);
+CREATE INDEX idx_events_invite_code ON events(invite_code);
 
 CREATE TABLE camps (
     camp_id VARCHAR(50) PRIMARY KEY,
@@ -79,6 +81,7 @@ CREATE TABLE professionals (
     phone_number VARCHAR(20),
     role VARCHAR(100) DEFAULT 'MERT Member',
     group_id VARCHAR(50) REFERENCES groups(group_id) ON DELETE SET NULL,
+    current_event_id VARCHAR(50) REFERENCES events(event_id) ON DELETE SET NULL,
     current_camp_id VARCHAR(50) REFERENCES camps(camp_id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -87,6 +90,7 @@ CREATE TABLE professionals (
 
 CREATE INDEX idx_professionals_email ON professionals(email);
 CREATE INDEX idx_professionals_group ON professionals(group_id);
+CREATE INDEX idx_professionals_event ON professionals(current_event_id);
 CREATE INDEX idx_professionals_camp ON professionals(current_camp_id);
 CREATE INDEX idx_professionals_role ON professionals(role);
 
@@ -434,6 +438,26 @@ BEGIN
         END IF;
     END IF;
     RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION generate_invite_code()
+RETURNS VARCHAR(20) AS $$
+DECLARE
+    code VARCHAR(20);
+    exists_check INTEGER;
+BEGIN
+    LOOP
+        code := UPPER(SUBSTRING(MD5(RANDOM()::TEXT || CLOCK_TIMESTAMP()::TEXT) FROM 1 FOR 6));
+
+        SELECT COUNT(*) INTO exists_check
+        FROM events
+        WHERE invite_code = code;
+
+        EXIT WHEN exists_check = 0;
+    END LOOP;
+    
+    RETURN code;
 END;
 $$ LANGUAGE plpgsql;
 

@@ -29,11 +29,11 @@ export default function HomeScreen({ navigation }) {
 
   const loadData = async () => {
     try {
-      // get active events -> in_progress
-      const eventsResponse = await eventAPI.getEvents({ status: 'in_progress', limit: 1 });
+      // get current event (the event the user is part of)
+      const currentEventResponse = await eventAPI.getCurrentEvent();
       
-      if (eventsResponse.success && eventsResponse.events.length > 0) {
-        const event = eventsResponse.events[0];
+      if (currentEventResponse.success && currentEventResponse.event) {
+        const event = currentEventResponse.event;
         setActiveEvent(event);
         
         // get casualties for this event
@@ -48,7 +48,7 @@ export default function HomeScreen({ navigation }) {
           setCasualties(transformedCasualties);
         }
       } else {
-        // no active events
+        // no current event
         setActiveEvent(null);
         setCasualties([]);
       }
@@ -102,6 +102,17 @@ export default function HomeScreen({ navigation }) {
 
           <Text style={styles.totalText}>Total: {casualties.length}</Text>
         </View>
+
+        {!activeEvent && (
+          <View style={{ marginTop: 8, marginBottom: 8, padding: 12, backgroundColor: '#FFFBE6', borderRadius: 8, borderWidth: 1, borderColor: '#E6B900' }}>
+            <Text style={{ color: '#011F5B', fontSize: 14, marginBottom: 4, fontWeight: '600' }}>
+              Join an Event to View Casualties
+            </Text>
+            <Text style={{ color: '#011F5B', fontSize: 12 }}>
+              Go to your Profile to join an event using an invite code.
+            </Text>
+          </View>
+        )}
 
         {/* triage counts */}
         <View style={styles.triageRow}>

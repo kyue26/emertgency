@@ -102,6 +102,130 @@ router.get('/', authenticateToken, [
   }
 });
 
+// GET /events/current - MUST come before /:eventId to avoid route conflict
+router.get('/current', authenticateToken, async (req, res) => {
+  try {
+    const professionalId = req.user.professional_id;
+
+    const result = await pool.query(
+      `SELECT e.*, p.current_camp_id, p.current_event_id
+       FROM professionals p
+       LEFT JOIN events e ON p.current_event_id = e.event_id
+       WHERE p.professional_id = $1`,
+      [professionalId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({
+        success: true,
+        event: null,
+        message: 'User not found'
+      });
+    }
+
+    const row = result.rows[0];
+    
+    // If no current_event_id or event doesn't exist
+    if (!row.current_event_id || !row.event_id) {
+      return res.json({
+        success: true,
+        event: null,
+        message: 'Not currently part of any event'
+      });
+    }
+
+    const event = row;
+    
+    // Only include invite_code if user is a commander
+    const response = {
+      success: true,
+      event: {
+        event_id: event.event_id,
+        name: event.name,
+        location: event.location,
+        status: event.status,
+        start_time: event.start_time,
+        finish_time: event.finish_time,
+        ...(req.user.role === 'Commander' && event.invite_code && { invite_code: event.invite_code })
+      }
+    };
+
+    res.json(response);
+  } catch (error) {
+    console.error('Get current event error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve current event',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /events/leave
+router.post('/leave', authenticateToken, async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const professionalId = req.user.professional_id;
+
+    await client.query('BEGIN');
+
+    // Get current event info for logging
+    const currentInfoResult = await client.query(
+      `SELECT p.current_event_id, e.name as event_name
+       FROM professionals p
+       LEFT JOIN events e ON p.current_event_id = e.event_id
+       WHERE p.professional_id = $1`,
+      [professionalId]
+    );
+
+    const currentEventId = currentInfoResult.rows[0]?.current_event_id;
+    const currentEventName = currentInfoResult.rows[0]?.event_name;
+
+    if (!currentEventId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'You are not currently part of any event'
+      });
+    }
+
+    // Clear event and camp assignment
+    await client.query(
+      `UPDATE professionals 
+       SET current_event_id = NULL, current_camp_id = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE professional_id = $1`,
+      [professionalId]
+    );
+
+    // Log the leave action
+    await client.query(
+      `INSERT INTO event_audit_log (event_id, action, performed_by, details, created_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+      [currentEventId, 'member_left', professionalId, JSON.stringify({ 
+        event_name: currentEventName
+      })]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: `Successfully left event: ${currentEventName || 'event'}`
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Leave event error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to leave event',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
+  }
+});
+
 // GET /events/:eventId
 router.get('/:eventId', authenticateToken, [
   param('eventId').notEmpty().trim()
@@ -195,10 +319,22 @@ router.post('/create', authenticateToken, requireCommander, [
 
     const event_id = `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+    // Generate invite code
+    const inviteCodeResult = await client.query('SELECT generate_invite_code() as code');
+    const invite_code = inviteCodeResult.rows[0].code;
+
     const result = await client.query(
-      `INSERT INTO events (event_id, name, location, start_time, finish_time, status, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP) RETURNING *`,
-      [event_id, name, location || null, start_time || null, finish_time || null, initialStatus, req.user.professional_id]
+      `INSERT INTO events (event_id, name, location, start_time, finish_time, status, created_by, invite_code, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP) RETURNING *`,
+      [event_id, name, location || null, start_time || null, finish_time || null, initialStatus, req.user.professional_id, invite_code]
+    );
+
+    // Automatically add creator to the event
+    await client.query(
+      `UPDATE professionals 
+       SET current_event_id = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE professional_id = $2`,
+      [event_id, req.user.professional_id]
     );
 
     // Log event creation
@@ -790,6 +926,219 @@ router.delete('/:eventId/camps/delete/:campId', authenticateToken, requireComman
     res.status(500).json({ 
       success: false, 
       message: 'Camp deletion failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /events/:eventId/invite-code
+router.get('/:eventId/invite-code', authenticateToken, requireCommander, [
+  param('eventId').notEmpty().trim()
+], async (req, res) => {
+  try {
+    const { eventId } = req.params;
+
+    const result = await pool.query(
+      `SELECT event_id, name, invite_code 
+       FROM events 
+       WHERE event_id = $1`,
+      [eventId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+
+    res.json({
+      success: true,
+      event: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Get invite code error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve invite code',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /events/join
+// has option to join with camp, but if not provided, will just be null
+router.post('/join', authenticateToken, [
+  body('invite_code').notEmpty().trim().isLength({ min: 4, max: 20 }),
+  body('camp_id').optional().trim()
+], async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { invite_code, camp_id } = req.body;
+    const professionalId = req.user.professional_id;
+
+    await client.query('BEGIN');
+
+    // Find event by invite code
+    const eventResult = await client.query(
+      `SELECT e.*, 
+              COUNT(DISTINCT c.camp_id) as camp_count
+       FROM events e
+       LEFT JOIN camps c ON e.event_id = c.event_id
+       WHERE e.invite_code = $1
+       GROUP BY e.event_id`,
+      [invite_code.toUpperCase()]
+    );
+
+    if (eventResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Invalid invite code. No event found with this code.' 
+      });
+    }
+
+    const event = eventResult.rows[0];
+
+    // Check if event is finished or cancelled
+    if (event.status === 'finished' || event.status === 'cancelled') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Cannot join finished or cancelled events' 
+      });
+    }
+
+    // Get current event/camp info for logging
+    const currentInfoResult = await client.query(
+      `SELECT p.current_event_id, p.current_camp_id, 
+              e.name as current_event_name
+       FROM professionals p
+       LEFT JOIN events e ON p.current_event_id = e.event_id
+       WHERE p.professional_id = $1`,
+      [professionalId]
+    );
+
+    const previousEventId = currentInfoResult.rows[0]?.current_event_id;
+    const previousCampId = currentInfoResult.rows[0]?.current_camp_id;
+
+    let targetCampId = camp_id || null;
+
+    // If camp_id is provided, validate it belongs to this event
+    if (targetCampId) {
+      const campCheck = await client.query(
+        `SELECT c.camp_id, c.capacity,
+                COUNT(p.professional_id) as current_count
+         FROM camps c
+         LEFT JOIN professionals p ON p.current_camp_id = c.camp_id
+         WHERE c.camp_id = $1 AND c.event_id = $2
+         GROUP BY c.camp_id, c.capacity`,
+        [targetCampId, event.event_id]
+      );
+
+      if (campCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Camp not found in this event' 
+        });
+      }
+
+      const camp = campCheck.rows[0];
+      // Check capacity if specified
+      if (camp.capacity && parseInt(camp.current_count) >= camp.capacity) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Camp is at full capacity' 
+        });
+      }
+    }
+
+    // Update professional's event assignment (and optionally camp assignment)
+    if (targetCampId) {
+      await client.query(
+        `UPDATE professionals 
+         SET current_event_id = $1, current_camp_id = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE professional_id = $3`,
+        [event.event_id, targetCampId, professionalId]
+      );
+    } else {
+      // Set event but clear camp assignment when joining event without camp
+      await client.query(
+        `UPDATE professionals 
+         SET current_event_id = $1, current_camp_id = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE professional_id = $2`,
+        [event.event_id, professionalId]
+      );
+    }
+
+    // Get camp info if camp was assigned
+    let campInfo = null;
+    if (targetCampId) {
+      const newCampResult = await client.query(
+        `SELECT c.*, e.name as event_name
+         FROM camps c
+         JOIN events e ON c.event_id = e.event_id
+         WHERE c.camp_id = $1`,
+        [targetCampId]
+      );
+      campInfo = newCampResult.rows[0];
+    }
+
+    // Log the join action
+    await client.query(
+      `INSERT INTO event_audit_log (event_id, action, performed_by, details, created_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+      [event.event_id, 'member_joined', professionalId, JSON.stringify({ 
+        invite_code: invite_code.toUpperCase(),
+        previous_event_id: previousEventId,
+        previous_camp_id: previousCampId,
+        camp_assigned: !!targetCampId,
+        new_camp_id: targetCampId
+      })]
+    );
+
+    await client.query('COMMIT');
+
+    const response = {
+      success: true,
+      message: `Successfully joined event: ${event.name}`,
+      event: {
+        event_id: event.event_id,
+        name: event.name,
+        status: event.status
+      }
+    };
+
+    if (campInfo) {
+      response.camp = campInfo;
+      response.message += ` and assigned to camp: ${campInfo.location_name}`;
+    } else {
+      response.message += '. You can be assigned to a camp by a commander.';
+    }
+
+    res.json(response);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Join event error:', error.message);
+    
+    // Handle capacity constraint errors
+    if (error.code === '23514' || error.message.includes('capacity')) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Camp is at full capacity' 
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to join event',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   } finally {

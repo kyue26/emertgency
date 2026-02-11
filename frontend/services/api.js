@@ -1,7 +1,8 @@
 // API Service for connecting frontend to backend
 // Base URL: https://emertgency.mayahuizar.com
 
-const API_BASE_URL = 'https://emertgency.mayahuizar.com';
+// const API_BASE_URL = 'https://emertgency.mayahuizar.com';
+const API_BASE_URL ='http://10.0.0.107:3000';
 
 // token storage key
 const TOKEN_KEY = '@emertgency:auth_token';
@@ -201,6 +202,35 @@ export const eventAPI = {
     const queryString = force ? '?force=true' : '';
     return await apiRequest(`/event/delete/${eventId}${queryString}`, {
       method: 'DELETE',
+    });
+  },
+
+  // GET /event/:eventId/invite-code
+  getInviteCode: async (eventId) => {
+    return await apiRequest(`/event/${eventId}/invite-code`);
+  },
+
+  // POST /event/join
+  joinEvent: async (inviteCode, campId) => {
+    const body = { invite_code: inviteCode };
+    if (campId) {
+      body.camp_id = campId;
+    }
+    return await apiRequest('/event/join', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  // GET /event/current
+  getCurrentEvent: async () => {
+    return await apiRequest('/event/current');
+  },
+
+  // POST /event/leave
+  leaveEvent: async () => {
+    return await apiRequest('/event/leave', {
+      method: 'POST',
     });
   },
 };
