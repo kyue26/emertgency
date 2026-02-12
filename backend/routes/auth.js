@@ -366,6 +366,39 @@ router.put('/update', authenticateToken, [
   }
 });
 
+// GET /auth/professionals
+router.get('/professionals', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        professional_id,
+        name,
+        email,
+        phone_number,
+        role,
+        current_event_id,
+        current_camp_id,
+        group_id,
+        created_at,
+        updated_at
+       FROM professionals
+       ORDER BY name ASC`
+    );
+
+    res.json({
+      success: true,
+      professionals: result.rows
+    });
+  } catch (error) {
+    console.error('Get professionals error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve professionals',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // DELETE /auth/delete/:userId
 router.delete('/delete/:userId', authenticateToken, async (req, res) => {
   const client = await pool.connect();

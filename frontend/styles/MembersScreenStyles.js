@@ -17,12 +17,6 @@ export default StyleSheet.create({
     fontWeight: "900",
     color: "#011F5B",
     textAlign: "center",
-    textShadowColor: "#999",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 3,
-    borderBottomWidth: 2,
-    borderBottomColor: "#011F5B",
-    paddingBottom: 4,
   },
 
   /* search bar */
@@ -34,12 +28,6 @@ export default StyleSheet.create({
     paddingVertical: 12,
     marginBottom: 20,
     justifyContent: "space-between",
-
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
-    elevation: 6,
   },
   searchInput: {
     flex: 1,
@@ -54,11 +42,6 @@ export default StyleSheet.create({
     borderRadius: 12,
     padding: 15,
     marginBottom: 15,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
   },
   cardLeft: {
     flexDirection: "row",
