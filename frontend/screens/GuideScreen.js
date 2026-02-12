@@ -1,6 +1,5 @@
 import React from "react";
-import { View, Text, ScrollView } from "react-native";
-import styles from "../styles/AddPersonModalStyles";
+import { View, Text, ScrollView, StyleSheet } from "react-native";
 
 const codeData = [
   {
@@ -59,7 +58,7 @@ const motorOptions = [
 
 const triageCharts = [
   {
-    title: "Respiratory Rate1",
+    title: "Respiratory Rate",
     rows: [
       { left: "10 - 29", right: "4" },
       { left: "> 29", right: "3" },
@@ -100,81 +99,31 @@ const triageCharts = [
 ];
 
 const GuideScreen = () => {
-  const sectionContainer = {
-    borderWidth: 1,
-    borderColor: "#D1D5DC",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  };
-
-  const sectionTitle = {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#101828",
-    marginBottom: 10,
-  };
-
-  const chartContainer = {
-    borderWidth: 1,
-    borderColor: "#D1D5DC",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  };
-
-  const chartTitle = {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 8,
-  };
-
-  const chartRow = {
-    flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  };
-
-  const chartCell = {
-    flex: 1,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-  };
-
-  const chartCellText = {
-    fontSize: 13,
-    color: "#0A0A0A",
-  };
-
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={[
-          styles.container,
-          { paddingBottom: 80 },
-        ]}
+        contentContainerStyle={styles.container}
       >
         <View style={styles.titleBox}>
           <Text style={styles.title}>Reference & Guidelines</Text>
         </View>
 
         {/* Triage Score Calculator */}
-        <View style={sectionContainer}>
-          <Text style={sectionTitle}>Triage Score Calculator</Text>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Triage Score Calculator</Text>
 
           {triageCharts.map((chart) => (
-            <View key={chart.title} style={chartContainer}>
-              <Text style={chartTitle}>{chart.title}</Text>
+            <View key={chart.title} style={styles.chartContainer}>
+              <Text style={styles.chartTitle}>{chart.title}</Text>
 
               {chart.rows.map((row, idx) => (
-                <View key={idx} style={chartRow}>
-                  <View style={chartCell}>
-                    <Text style={chartCellText}>{row.left}</Text>
+                <View key={idx} style={styles.chartRow}>
+                  <View style={styles.chartCell}>
+                    <Text style={styles.chartCellText}>{row.left}</Text>
                   </View>
-                  <View style={chartCell}>
-                    <Text style={chartCellText}>{row.right}</Text>
+                  <View style={styles.chartCell}>
+                    <Text style={styles.chartCellText}>{row.right}</Text>
                   </View>
                 </View>
               ))}
@@ -183,108 +132,46 @@ const GuideScreen = () => {
         </View>
 
         {/* Priority Assignment */}
-        <View style={sectionContainer}>
-          <Text style={sectionTitle}>Priority Assignment</Text>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Priority Assignment</Text>
 
           {codeData.map((item) => (
-            <View
-              key={item.key}
-              style={{
-                marginTop: 8,
-                borderRadius: 8,
-                borderWidth: 1,
-                borderColor: "#D1D5DC",
-                padding: 16,
-                flexDirection: "row",
-                alignItems: "center",
-              }}
-            >
-              <View
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: 10,
-                  backgroundColor: item.color,
-                  marginRight: 12,
-                }}
-              />
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    fontSize: 16,
-                    fontWeight: "600",
-                    color: item.text,
-                    paddingBottom: 4,
-                  }}
-                >
-                  {item.title}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 14,
-                    color: "#4B5563",
-                  }}
-                >
-                  {item.description}
-                </Text>
+            <View key={item.key} style={styles.priorityItem}>
+              <View style={[styles.colorCircle, { backgroundColor: item.color }]} />
+              <View style={styles.priorityContent}>
+                <Text style={styles.priorityTitle}>{item.title}</Text>
+                <Text style={styles.priorityDescription}>{item.description}</Text>
               </View>
             </View>
           ))}
         </View>
 
         {/* Behavior & Response */}
-        <View style={sectionContainer}>
-          <Text style={sectionTitle}>Behavior & Response</Text>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Behavior & Response</Text>
 
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.text, { marginBottom: 6 }]}>
-              Eye Opening Response
-            </Text>
+          <View style={styles.responseSection}>
+            <Text style={styles.responseLabel}>Eye Opening Response</Text>
             {eyeOptions.map((opt) => (
-              <Text
-                key={opt.value}
-                style={{
-                  fontSize: 14,
-                  color: "#0A0A0A",
-                  marginBottom: 2,
-                }}
-              >
+              <Text key={opt.value} style={styles.responseText}>
                 {opt.label}
               </Text>
             ))}
           </View>
 
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.text, { marginBottom: 6 }]}>
-              Verbal Response
-            </Text>
+          <View style={styles.responseSection}>
+            <Text style={styles.responseLabel}>Verbal Response</Text>
             {verbalOptions.map((opt) => (
-              <Text
-                key={opt.value}
-                style={{
-                  fontSize: 14,
-                  color: "#0A0A0A",
-                  marginBottom: 2,
-                }}
-              >
+              <Text key={opt.value} style={styles.responseText}>
                 {opt.label}
               </Text>
             ))}
           </View>
 
-          <View>
-            <Text style={[styles.text, { marginBottom: 6 }]}>
-              Motor Response
-            </Text>
+          <View style={styles.responseSection}>
+            <Text style={styles.responseLabel}>Motor Response</Text>
             {motorOptions.map((opt) => (
-              <Text
-                key={opt.value}
-                style={{
-                  fontSize: 14,
-                  color: "#0A0A0A",
-                  marginBottom: 2,
-                }}
-              >
+              <Text key={opt.value} style={styles.responseText}>
                 {opt.label}
               </Text>
             ))}
@@ -294,5 +181,108 @@ const GuideScreen = () => {
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    backgroundColor: "#D8E2F2",
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 80,
+  },
+  titleBox: {
+    alignItems: "center",
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: "900",
+    color: "#011F5B",
+    textAlign: "center",
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#011F5B",
+    marginBottom: 8,
+  },
+  chartContainer: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  chartTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 8,
+  },
+  chartRow: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+  },
+  chartCell: {
+    flex: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  chartCellText: {
+    fontSize: 13,
+    color: "#0A0A0A",
+  },
+  priorityItem: {
+    marginTop: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  colorCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 12,
+  },
+  priorityContent: {
+    flex: 1,
+  },
+  priorityTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#101828",
+    marginBottom: 4,
+  },
+  priorityDescription: {
+    fontSize: 14,
+    color: "#4B5563",
+  },
+  responseSection: {
+    marginBottom: 16,
+  },
+  responseLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#011F5B",
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  responseText: {
+    fontSize: 14,
+    color: "#0A0A0A",
+    marginTop: 4,
+  },
+});
 
 export default GuideScreen;
