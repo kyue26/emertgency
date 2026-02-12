@@ -203,7 +203,7 @@ const AddPersonScreen = ({ navigation }) => {
     paddingHorizontal: 12,
     paddingVertical: 4,
     height: 48,
-    marginBottom: 20,
+    marginBottom: 8,
   };
 
   const placeholderStyle = {
@@ -338,7 +338,9 @@ const AddPersonScreen = ({ navigation }) => {
           )}
         </View>
 
-        <View>
+        {/* Basic Information Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Basic Information</Text>
           <Text style={styles.text}>Name / ID *</Text>
           <TextInput
             value={form.nameOrId}
@@ -353,13 +355,13 @@ const AddPersonScreen = ({ navigation }) => {
               paddingHorizontal: 12,
               paddingVertical: 10,
               fontSize: 16,
-              color: "#0A0A0A80",
-              marginBottom: 20,
+              color: "#0A0A0A",
+              marginBottom: 16,
             }}
           />
 
-          <Text style={styles.text}>Priority Tag:</Text>
-          <View style={{ marginBottom: 20 }}>
+          <Text style={styles.text}>Priority Tag *</Text>
+          <View>
             {codeData.map((item) => {
               const isSelected = form.triage === item.key;
 
@@ -412,7 +414,11 @@ const AddPersonScreen = ({ navigation }) => {
               );
             })}
           </View>
+        </View>
 
+        {/* Vital Signs Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Vital Signs</Text>
           <Text style={styles.text}>Respiratory Rate</Text>
           <TextInput
             value={form.RR}
@@ -428,8 +434,8 @@ const AddPersonScreen = ({ navigation }) => {
               paddingHorizontal: 12,
               paddingVertical: 10,
               fontSize: 16,
-              color: "#0A0A0A80",
-              marginBottom: 20,
+              color: "#0A0A0A",
+              marginBottom: 16,
             }}
           />
 
@@ -448,105 +454,89 @@ const AddPersonScreen = ({ navigation }) => {
               paddingHorizontal: 12,
               paddingVertical: 10,
               fontSize: 16,
-              color: "#0A0A0A80",
-              marginBottom: 20,
+              color: "#0A0A0A",
             }}
           />
         </View>
 
-        <View>
-          <Text style={[styles.text, { marginBottom: 6 }]}>
-            Eye Opening Response
-          </Text>
-          <Dropdown
-            style={dropdownStyle}
-            data={eyeOptions}
-            labelField="label"
-            valueField="value"
-            placeholder="Select eye opening response"
-            value={form.eye}
-            onChange={(item) => updateForm("eye", item.value)}
-            placeholderStyle={placeholderStyle}
-            selectedTextStyle={selectedTextStyle}
-            itemTextStyle={itemTextStyle}
-          />
+        {/* Glasgow Coma Scale Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Glasgow Coma Scale</Text>
+          <View style={{ marginBottom: 16 }}>
+            <Text style={styles.text}>Eye Opening Response</Text>
+            <Dropdown
+              style={dropdownStyle}
+              data={eyeOptions}
+              labelField="label"
+              valueField="value"
+              placeholder="Select eye opening response"
+              value={form.eye}
+              onChange={(item) => updateForm("eye", item.value)}
+              placeholderStyle={placeholderStyle}
+              selectedTextStyle={selectedTextStyle}
+              itemTextStyle={itemTextStyle}
+            />
+          </View>
+
+          <View style={{ marginBottom: 16 }}>
+            <Text style={styles.text}>Verbal Response</Text>
+            <Dropdown
+              style={dropdownStyle}
+              data={verbalOptions}
+              labelField="label"
+              valueField="value"
+              placeholder="Select verbal response"
+              value={form.verbal}
+              onChange={(item) => updateForm("verbal", item.value)}
+              placeholderStyle={placeholderStyle}
+              selectedTextStyle={selectedTextStyle}
+              itemTextStyle={itemTextStyle}
+            />
+          </View>
+
+          <View>
+            <Text style={styles.text}>Motor Response</Text>
+            <Dropdown
+              style={dropdownStyle}
+              data={motorOptions}
+              labelField="label"
+              valueField="value"
+              placeholder="Select motor response"
+              value={form.motor}
+              onChange={(item) => updateForm("motor", item.value)}
+              placeholderStyle={placeholderStyle}
+              selectedTextStyle={selectedTextStyle}
+              itemTextStyle={itemTextStyle}
+            />
+          </View>
         </View>
 
-        <View>
-          <Text style={[styles.text, { marginBottom: 6 }]}>
-            Verbal Response
-          </Text>
-          <Dropdown
-            style={dropdownStyle}
-            data={verbalOptions}
-            labelField="label"
-            valueField="value"
-            placeholder="Select verbal response"
-            value={form.verbal}
-            onChange={(item) => updateForm("verbal", item.value)}
-            placeholderStyle={placeholderStyle}
-            selectedTextStyle={selectedTextStyle}
-            itemTextStyle={itemTextStyle}
-          />
-        </View>
-
-        <View>
-          <Text style={[styles.text, { marginBottom: 6 }]}>
-            Motor Response
-          </Text>
-          <Dropdown
-            style={dropdownStyle}
-            data={motorOptions}
-            labelField="label"
-            valueField="value"
-            placeholder="Select motor response"
-            value={form.motor}
-            onChange={(item) => updateForm("motor", item.value)}
-            placeholderStyle={placeholderStyle}
-            selectedTextStyle={selectedTextStyle}
-            itemTextStyle={itemTextStyle}
-          />
-        </View>
-
-        <Text style={styles.text}>Additional Notes</Text>
-        <TextInput
-          value={form.additionalNotes}
-          onChangeText={(text) => updateForm("additionalNotes", text)}
-          placeholder="Any additional information"
-          placeholderTextColor="#0A0A0A80"
-          multiline
-          style={{
-            borderWidth: 1,
-            borderColor: "#D1D5DC",
-            borderRadius: 8,
-            paddingHorizontal: 12,
-            paddingVertical: 12,
-            fontSize: 16,
-            color: "#0A0A0A80",
-            marginBottom: 20,
-            textAlignVertical: "top",
-            height: 80,
-          }}
-        />
-
-        {/* Calculated triage summary */}
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: "#D1D5DC",
-            borderRadius: 12,
-            padding: 12,
-            marginBottom: 20,
-          }}
-        >
-          <Text
+        {/* Additional Notes Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Additional Notes</Text>
+          <TextInput
+            value={form.additionalNotes}
+            onChangeText={(text) => updateForm("additionalNotes", text)}
+            placeholder="Any additional information"
+            placeholderTextColor="#0A0A0A80"
+            multiline
             style={{
+              borderWidth: 1,
+              borderColor: "#D1D5DC",
+              borderRadius: 8,
+              paddingHorizontal: 12,
+              paddingVertical: 12,
               fontSize: 16,
-              fontWeight: "600",
-              color: "#111827",
-              marginBottom: 8,
+              color: "#0A0A0A",
+              textAlignVertical: "top",
+              height: 80,
             }}
-          >
+          />
+        </View>
+
+        {/* Calculated Triage Score Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>
             Calculated Triage Score
           </Text>
 
@@ -592,9 +582,11 @@ const AddPersonScreen = ({ navigation }) => {
           )}
         </View>
 
+        {/* Action Buttons */}
         <View
           style={{
             flexDirection: "row",
+            marginBottom: 20,
           }}
         >
           <TouchableOpacity

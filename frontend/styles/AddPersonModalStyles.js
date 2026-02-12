@@ -3,25 +3,21 @@ import { StyleSheet } from "react-native";
 export default StyleSheet.create({
   container: {
     flexGrow: 1,
-    backgroundColor: "#E8F1FA",
+    backgroundColor: "#D8E2F2",
     paddingHorizontal: 20,
-    paddingTop: 30,
-    gap: 30,
+    paddingTop: 10,
+    paddingBottom: 80,
   },
   titleBox: {
     alignItems: "center",
+    marginTop: 20,
+    marginBottom: 20,
   },
   title: {
     fontSize: 26,
     fontWeight: "900",
     color: "#011F5B",
     textAlign: "center",
-    textShadowColor: "#999",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 3,
-    borderBottomWidth: 2,
-    borderBottomColor: "#011F5B",
-    paddingBottom: 4,
   },
   header: {
     fontSize: 22,
@@ -30,8 +26,22 @@ export default StyleSheet.create({
     marginBottom: "20",
   },
   text: {
-    fontSize: 18,
+    fontSize: 16,
+    fontWeight: "600",
     color: "#011F5B",
+    marginBottom: 8,
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 20,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#011F5B",
+    marginBottom: 16,
   },
   image: {
     width: 300,  
@@ -51,11 +61,6 @@ export default StyleSheet.create({
     borderRadius: 30,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
-    elevation: 6,
     marginBottom: 10,
   },
   countText: {
@@ -72,11 +77,5 @@ export default StyleSheet.create({
     height: 50,
     justifyContent: "center",
     alignItems: "center",
-
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3, 
   },
 });
