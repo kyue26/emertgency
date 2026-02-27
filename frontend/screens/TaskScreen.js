@@ -1,7 +1,8 @@
 // screens/TaskScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Modal, Alert, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, RefreshControl } from 'react-native';
 import { Feather, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import styles from '../styles/TaskScreenStyles'; // Styles for main screen and task cards
 import modalStyles from '../styles/CreateTaskModalStyles'; // Styles for the modal form
 import { taskAPI, eventAPI, groupAPI, authAPI } from '../services/api';
@@ -129,6 +130,8 @@ const TaskScreen = ({ navigation }) => {
     const [isCreateTaskModalVisible, setCreateTaskModalVisible] = useState(false);
     const [assignedToMeTasks, setAssignedToMeTasks] = useState([]);
     const [assignedByMeTasks, setAssignedByMeTasks] = useState([]);
+    const [assignedToMeCount, setAssignedToMeCount] = useState(0);
+    const [assignedByMeCount, setAssignedByMeCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [activeEventId, setActiveEventId] = useState(null);
@@ -142,40 +145,30 @@ const TaskScreen = ({ navigation }) => {
             const user = await getStoredUser();
             setCurrentUser(user);
 
-            // get active event
-            const eventsResponse = await eventAPI.getEvents({ status: 'in_progress', limit: 1 });
-            if (eventsResponse.success && eventsResponse.events.length > 0) {
-                setActiveEventId(eventsResponse.events[0].event_id);
+            // get the event the current user is actually in
+            const currentEventResponse = await eventAPI.getCurrentEvent();
+            let eventId = null;
+
+            if (currentEventResponse.success && currentEventResponse.event) {
+                eventId = currentEventResponse.event.event_id;
+                setActiveEventId(eventId);
             }
 
-            // get all professionals from groups
-            const groupsResponse = await groupAPI.getGroups({ include_members: true });
-            const allMembers = [];
-            const memberIds = new Set();
-            
-            if (groupsResponse.success && groupsResponse.groups) {
-                groupsResponse.groups.forEach(group => {
-                    if (group.members) {
-                        group.members.forEach(member => {
-                            // Avoid duplicates
-                            if (!memberIds.has(member.professional_id)) {
-                                memberIds.add(member.professional_id);
-                                allMembers.push({
-                                    professional_id: member.professional_id,
-                                    name: member.name,
-                                    email: member.email,
-                                    role: member.role,
-                                });
-                            }
-                        });
-                    }
-                });
-            }
-            
-            setProfessionals(allMembers);
+            // get all professionals and filter to those in the same event (the "team")
+            const professionalsResponse = await authAPI.getProfessionals();
+            let eventMembers = [];
 
-            // load tasks
-            await loadTasks();
+            if (professionalsResponse.success && professionalsResponse.professionals) {
+                const eventIdStr = eventId ? String(eventId) : '';
+                eventMembers = professionalsResponse.professionals.filter(p =>
+                    eventIdStr && p != null && String(p.current_event_id) === eventIdStr
+                );
+            }
+
+            setProfessionals(eventMembers);
+
+            // load tasks with freshly fetched eventId and user (state may not have updated yet)
+            await loadTasks(eventId, user);
         } catch (error) {
             console.error('Error loading data:', error);
             Alert.alert("Error", "Failed to load data.");
@@ -185,37 +178,46 @@ const TaskScreen = ({ navigation }) => {
         }
     };
 
-    const loadTasks = async () => {
+    const loadTasks = async (overrideEventId, overrideUser) => {
+        const eventId = overrideEventId ?? activeEventId;
+        const user = overrideUser ?? currentUser;
         try {
-            if (!currentUser) return;
-            
-            // get tasks assigned to me
-            const myTasksResponse = await taskAPI.getTasks({ my_tasks: true });
+            if (!user || !eventId) return;
+
+            // get tasks assigned to me for the current event only
+            const myTasksResponse = await taskAPI.getTasks({ my_tasks: true, event_id: eventId });
             if (myTasksResponse.success) {
                 const transformed = transformTasks(myTasksResponse.tasks);
-                setAssignedToMeTasks(transformed.filter(t => t.assigned_to === currentUser.professional_id));
+                setAssignedToMeTasks(transformed.filter(t => t.assigned_to === user.professional_id));
+                if (myTasksResponse.pagination && typeof myTasksResponse.pagination.total === 'number') {
+                    setAssignedToMeCount(myTasksResponse.pagination.total);
+                } else {
+                    setAssignedToMeCount(transformed.length);
+                }
             }
 
-            // get tasks assigned by me
-            const createdTasksResponse = await taskAPI.getTasks({});
+            // get tasks assigned by me for the current event only
+            const createdTasksResponse = await taskAPI.getTasks({ event_id: eventId });
             if (createdTasksResponse.success) {
                 const transformed = transformTasks(createdTasksResponse.tasks);
-                setAssignedByMeTasks(transformed.filter(t => t.created_by === currentUser.professional_id));
+                setAssignedByMeTasks(transformed.filter(t => t.created_by === user.professional_id));
+                if (createdTasksResponse.pagination && typeof createdTasksResponse.pagination.total === 'number') {
+                    setAssignedByMeCount(createdTasksResponse.pagination.total);
+                } else {
+                    setAssignedByMeCount(transformed.length);
+                }
             }
         } catch (error) {
             console.error('Error loading tasks:', error);
         }
     };
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    useEffect(() => {
-        if (currentUser) {
-            loadTasks();
-        }
-    }, [currentUser, activeTab]);
+    // Refetch whenever this screen gains focus (e.g. opening Tasks from Profile tab)
+    useFocusEffect(
+        useCallback(() => {
+            loadData();
+        }, [])
+    );
 
     // Function to add a new task
     const handleCreateTask = async (newTask) => {
@@ -224,11 +226,21 @@ const TaskScreen = ({ navigation }) => {
             return;
         }
 
-        // find professional ID from name or email
-        let assignedProfessional = professionals.find(p => 
-            p.name.toLowerCase().includes(newTask.assignTo.toLowerCase()) ||
-            p.email.toLowerCase().includes(newTask.assignTo.toLowerCase())
-        );
+        const assignToStr = (newTask && newTask.assignTo) ? String(newTask.assignTo).trim() : '';
+        if (!assignToStr) {
+            Alert.alert("Error", "Please enter a name or email for Assign To.");
+            return;
+        }
+
+        const assignToLower = assignToStr.toLowerCase();
+
+        // find professional ID from name or email (guard against null name/email)
+        let assignedProfessional = professionals.find(p => {
+            if (!p) return false;
+            const nameMatch = p.name && String(p.name).toLowerCase().includes(assignToLower);
+            const emailMatch = p.email && String(p.email).toLowerCase().includes(assignToLower);
+            return nameMatch || emailMatch;
+        });
 
         console.log('Found locally?', !!assignedProfessional);
 
@@ -245,8 +257,9 @@ const TaskScreen = ({ navigation }) => {
                         if (group.members) {
                             for (let j = 0; j < group.members.length; j++) {
                                 const member = group.members[j];
-                                const emailMatch = member.email && member.email.toLowerCase() === newTask.assignTo.toLowerCase();
-                                const nameMatch = member.name && member.name.toLowerCase().includes(newTask.assignTo.toLowerCase());
+                                if (!member) continue;
+                                const emailMatch = member.email && String(member.email).toLowerCase().includes(assignToLower);
+                                const nameMatch = member.name && String(member.name).toLowerCase().includes(assignToLower);
                                 
                                 if (emailMatch || nameMatch) {
                                     assignedProfessional = {
@@ -271,20 +284,25 @@ const TaskScreen = ({ navigation }) => {
             }
         }
 
-        if (!assignedProfessional) {
+        if (!assignedProfessional || !assignedProfessional.professional_id) {
             Alert.alert("Error", "Could not find professional. Please enter a valid name or email (e.g., angie@pennmert.org).");
             return;
         }
 
         try {
-            // converting to backend format
+            // notes must be a string or null (backend validates .trim() and max length)
+            const rawNotes = newTask.relatedCasualty;
+            const notes = (rawNotes != null && rawNotes !== '')
+                ? String(rawNotes).trim().substring(0, 2000)
+                : null;
+
             const taskData = {
                 event_id: activeEventId,
                 assigned_to: assignedProfessional.professional_id,
-                task_description: newTask.description || newTask.taskTitle,
+                task_description: String(newTask.description || newTask.taskTitle || '').trim() || 'Task',
                 priority: newTask.priority?.toLowerCase() || 'medium',
-                notes: newTask.relatedCasualty || null,
             };
+            if (notes != null) taskData.notes = notes;
 
             const response = await taskAPI.createTask(taskData);
             if (response.success) {
@@ -297,7 +315,10 @@ const TaskScreen = ({ navigation }) => {
             }
         } catch (error) {
             console.error('Error creating task:', error);
-            Alert.alert("Error", error.message || "Failed to create task.");
+            const message = (error && typeof error.message === 'string' && !error.message.includes('__DEV__'))
+                ? error.message
+                : 'Failed to create task. Please try again.';
+            Alert.alert("Error", message);
         }
     };
 
@@ -432,7 +453,7 @@ const TaskScreen = ({ navigation }) => {
                     onPress={() => setActiveTab('assignedToMe')}
                 >
                     <Text style={[styles.tabButtonText, activeTab === 'assignedToMe' && styles.activeTabButtonText]}>
-                        Assigned to Me ({assignedToMeTasks.length})
+                        Assigned to Me ({assignedToMeCount})
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -440,7 +461,7 @@ const TaskScreen = ({ navigation }) => {
                     onPress={() => setActiveTab('assignedByMe')}
                 >
                     <Text style={[styles.tabButtonText, activeTab === 'assignedByMe' && styles.activeTabButtonText]}>
-                        Assigned by Me ({assignedByMeTasks.length})
+                        Assigned by Me ({assignedByMeCount})
                     </Text>
                 </TouchableOpacity>
             </View>

@@ -1,5 +1,5 @@
 // screens/HomeScreen.js
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Alert,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { eventAPI, casualtyAPI } from "../services/api";
 import { transformCasualties } from "../utils/casualtyTransform";
 
@@ -27,7 +28,7 @@ export default function HomeScreen({ navigation }) {
     black: "#1f2937",
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       // get current event (the event the user is part of)
       const currentEventResponse = await eventAPI.getCurrentEvent();
@@ -59,11 +60,14 @@ export default function HomeScreen({ navigation }) {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    loadData();
   }, []);
+
+  // load data on mount and whenever this screen regains focus
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -157,7 +161,7 @@ export default function HomeScreen({ navigation }) {
       <View style={{ marginTop: 24 }}>
         <View style={styles.rowBetween}>
           <Text style={styles.sectionTitle}>Recent Casualties</Text>
-          <TouchableOpacity onPress={() => {}}>
+          <TouchableOpacity onPress={() => navigation.navigate("List")}>
             <Text style={styles.viewAll}>View All</Text>
           </TouchableOpacity>
         </View>

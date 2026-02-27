@@ -2,7 +2,7 @@
 // Base URL: https://emertgency.mayahuizar.com
 
 // const API_BASE_URL = 'https://emertgency.mayahuizar.com';
-const API_BASE_URL ='http://10.0.0.107:3000';
+const API_BASE_URL ='http://100.69.33.3:3000';
 
 // token storage key
 const TOKEN_KEY = '@emertgency:auth_token';
