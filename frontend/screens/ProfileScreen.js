@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput } from "react-native";
 import { FontAwesome5, MaterialIcons, Feather } from '@expo/vector-icons'; // Assuming you use expo vector icons or similar
 import styles from "../styles/ProfileScreenStyles";
-import { getStoredUser, authAPI, taskAPI, eventAPI } from "../services/api";
+import { getStoredUser, authAPI, taskAPI, eventAPI, shiftAPI } from "../services/api";
 import { AuthContext } from "../App";
 
 const ProfileScreen = ({ navigation }) => {
@@ -16,12 +16,12 @@ const ProfileScreen = ({ navigation }) => {
   });
   const [isUserOnDuty, setIsUserOnDuty] = useState(false);
   const [shiftData, setShiftData] = useState({
-    checkIn: "Not set",
-    checkOut: "Not set",
-    duration: "0h 0m",
-    todayShifts: 0,
-    todayStatus: "Inactive",
+    currentShift: null,
+    totalShifts: 0,
+    totalHours: 0,
+    shifts: [],
   });
+  const [shiftLoading, setShiftLoading] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [joinModalVisible, setJoinModalVisible] = useState(false);
   const [newEventName, setNewEventName] = useState("");
@@ -31,12 +31,17 @@ const ProfileScreen = ({ navigation }) => {
   const [isJoiningEvent, setIsJoiningEvent] = useState(false);
   const [currentEvent, setCurrentEvent] = useState(null);
 
-  // Load user data and tasks on mount
   useEffect(() => {
     loadUserData();
     loadTaskStats();
     loadCurrentEvent();
   }, []);
+
+  useEffect(() => {
+    if (currentEvent) {
+      loadShiftData();
+    }
+  }, [currentEvent]);
 
   const loadUserData = async () => {
     try {
@@ -81,6 +86,39 @@ const ProfileScreen = ({ navigation }) => {
       console.error("Error loading current event:", error);
       setCurrentEvent(null);
     }
+  };
+
+  const loadShiftData = async () => {
+    try {
+      const response = await shiftAPI.getMyShifts();
+      if (response.success) {
+        setIsUserOnDuty(response.is_on_duty);
+        setShiftData({
+          currentShift: response.current_shift,
+          totalShifts: response.total_shifts,
+          totalHours: response.total_hours,
+          shifts: response.shifts,
+        });
+      }
+    } catch (error) {
+      console.error("Error loading shift data:", error);
+    }
+  };
+
+  const formatTime = (timestamp) => {
+    if (!timestamp) return "—";
+    const d = new Date(timestamp);
+    return d.toLocaleString('en-US', {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  };
+
+  const formatDuration = (hours) => {
+    if (!hours || hours <= 0) return "0h 0m";
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    return `${h}h ${m}m`;
   };
 
   const handleToggleEventStatus = async () => {
@@ -199,29 +237,30 @@ const ProfileScreen = ({ navigation }) => {
     );
   };
 
-  // Function to simulate checking in/out
-  const toggleDutyStatus = () => {
+  const toggleDutyStatus = async () => {
+    try {
+      setShiftLoading(true);
       if (isUserOnDuty) {
-          // Simulate Check Out
-          const now = new Date();
-          const checkOutTimeStr = `${now.toDateString().substring(4, 10)}, ${now.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})}`;
-          setShiftData(prev => ({
-              ...prev,
-              checkOut: checkOutTimeStr,
-              todayStatus: "Inactive",
-          }));
+        const response = await shiftAPI.checkOut();
+        if (response.success) {
+          await loadShiftData();
+        } else {
+          Alert.alert("Error", response.message || "Failed to check out.");
+        }
       } else {
-          // Simulate Check In
-          const now = new Date();
-          const checkInTimeStr = `${now.toDateString().substring(4, 10)}, ${now.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})}`;
-          setShiftData(prev => ({
-              ...prev,
-              checkIn: checkInTimeStr,
-              checkOut: "Not set", // When checking in, checkout is reset
-              todayStatus: "Active",
-          }));
+        const response = await shiftAPI.checkIn();
+        if (response.success) {
+          await loadShiftData();
+        } else {
+          Alert.alert("Error", response.message || "Failed to check in.");
+        }
       }
-      setIsUserOnDuty(!isUserOnDuty);
+    } catch (error) {
+      console.error("Shift toggle error:", error);
+      Alert.alert("Error", error.message || "Failed to update shift status.");
+    } finally {
+      setShiftLoading(false);
+    }
   };
   
   const handleOpenCreateEvent = () => {
@@ -343,16 +382,6 @@ const ProfileScreen = ({ navigation }) => {
     );
   };
   
-  // Conditionally set shift button and status text/icon
-  const shiftButtonText = isUserOnDuty ? "Check Out - End Shift" : "Check In - Start New Shift";
-  const shiftButtonColor = isUserOnDuty ? styles.endShiftButton : styles.startShiftButton;
-  const shiftStatusText = isUserOnDuty ? "On Duty" : "Off Duty";
-  const shiftStatusIcon = isUserOnDuty ? (
-      <Feather name="check-circle" size={20} color="#00C853" /> // Green check for On Duty
-  ) : (
-      <Feather name="x-circle" size={20} color="#DC3545" /> // Red X for Off Duty
-  );
-
   if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -548,63 +577,111 @@ const ProfileScreen = ({ navigation }) => {
         </View>
       </View>
       
-      {/* Shift Status Card */}
-      <View style={styles.shiftStatusCard}>
-        <View style={[styles.shiftDetailRow, styles.noBorderBottom]}>
-            <Text style={styles.shiftDetailLabel}>Shift Status</Text>
-            <View style={styles.shiftStatusValueContainer}>
-                {shiftStatusIcon}
-                <Text style={styles.shiftStatusText}>{shiftStatusText}</Text>
+      {currentEvent ? (
+        <>
+          {/* Shift Status Card */}
+          <View style={styles.shiftStatusCard}>
+            <View style={[styles.shiftDetailRow, styles.noBorderBottom]}>
+              <Text style={styles.shiftDetailLabel}>Shift Status</Text>
+              <View style={styles.shiftStatusValueContainer}>
+                {isUserOnDuty ? (
+                  <Feather name="check-circle" size={20} color="#00C853" />
+                ) : (
+                  <Feather name="x-circle" size={20} color="#DC3545" />
+                )}
+                <Text style={styles.shiftStatusText}>{isUserOnDuty ? "On Duty" : "Off Duty"}</Text>
+              </View>
             </View>
-        </View>
-        <View style={styles.shiftDetailRow}>
-            <Text style={styles.shiftDetailLabel}>Check In</Text>
-            <Text style={styles.shiftDetailValue}>{shiftData.checkIn}</Text>
-        </View>
-        <View style={styles.shiftDetailRow}>
-            <Text style={styles.shiftDetailLabel}>Check Out</Text>
-            <Text style={styles.shiftDetailValue}>{shiftData.checkOut}</Text>
-        </View>
-        <View style={styles.shiftDetailRow}>
-            <Text style={styles.shiftDetailLabel}>Duration</Text>
-            <Text style={styles.shiftDetailValue}>{shiftData.duration}</Text>
-        </View>
+            <View style={styles.shiftDetailRow}>
+              <Text style={styles.shiftDetailLabel}>Check In</Text>
+              <Text style={styles.shiftDetailValue}>
+                {shiftData.currentShift ? formatTime(shiftData.currentShift.check_in) : "—"}
+              </Text>
+            </View>
+            <View style={styles.shiftDetailRow}>
+              <Text style={styles.shiftDetailLabel}>Check Out</Text>
+              <Text style={styles.shiftDetailValue}>
+                {shiftData.currentShift?.check_out ? formatTime(shiftData.currentShift.check_out) : "—"}
+              </Text>
+            </View>
+            <View style={styles.shiftDetailRow}>
+              <Text style={styles.shiftDetailLabel}>Duration</Text>
+              <Text style={styles.shiftDetailValue}>
+                {shiftData.currentShift ? formatDuration(shiftData.currentShift.duration_hours) : "—"}
+              </Text>
+            </View>
 
-        {/* Shift Action Button */}
-        <TouchableOpacity 
-            style={[styles.shiftActionButton, shiftButtonColor]} 
-            onPress={toggleDutyStatus}
-        >
-            <Feather name="clock" size={20} color="#FFFFFF" style={{marginRight: 8}} />
-            <Text style={styles.shiftActionButtonText}>{shiftButtonText}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Today's Activity Card */}
-      <View style={styles.activityCard}>
-          <Text style={styles.activityHeader}>Today's Activity</Text>
-          <View style={styles.activityStatsRow}>
-              <View style={styles.activityStatBox}>
-                  <Text style={styles.activityStatNumber}>{shiftData.todayShifts}</Text>
-                  <Text style={styles.activityStatLabel}>Shifts</Text>
-              </View>
-              <View style={styles.activityStatBox}>
-                  <Text style={styles.activityStatNumber}>{shiftData.todayStatus}</Text>
-                  <Text style={styles.activityStatLabel}>Status</Text>
-              </View>
+            <TouchableOpacity
+              style={[styles.shiftActionButton, isUserOnDuty ? styles.endShiftButton : styles.startShiftButton]}
+              onPress={toggleDutyStatus}
+              disabled={shiftLoading}
+            >
+              <Feather name="clock" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+              <Text style={styles.shiftActionButtonText}>
+                {shiftLoading ? "Updating..." : isUserOnDuty ? "Check Out - End Shift" : "Check In - Start New Shift"}
+              </Text>
+            </TouchableOpacity>
           </View>
-      </View>
-      
+
+          {/* Event Shift Summary */}
+          <View style={styles.activityCard}>
+            <Text style={styles.activityHeader}>Event Shift Summary</Text>
+            <View style={styles.activityStatsRow}>
+              <View style={styles.activityStatBox}>
+                <Text style={styles.activityStatNumber}>{shiftData.totalShifts}</Text>
+                <Text style={styles.activityStatLabel}>Total Shifts</Text>
+              </View>
+              <View style={styles.activityStatBox}>
+                <Text style={styles.activityStatNumber}>{formatDuration(shiftData.totalHours)}</Text>
+                <Text style={styles.activityStatLabel}>Total Hours</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Shift History */}
+          {shiftData.shifts.length > 0 && (
+            <View style={styles.activityCard}>
+              <Text style={styles.activityHeader}>Shift History</Text>
+              {shiftData.shifts.map((shift) => (
+                <View key={shift.shift_id} style={[styles.shiftDetailRow, { flexDirection: 'column', alignItems: 'flex-start', paddingVertical: 10 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#011F5B' }}>
+                      {formatTime(shift.check_in)}
+                    </Text>
+                    <Text style={{
+                      fontSize: 12,
+                      fontWeight: '600',
+                      color: shift.check_out ? '#011F5B' : '#00C853',
+                      backgroundColor: shift.check_out ? '#F0F0F0' : '#E8F5E9',
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 4,
+                    }}>
+                      {shift.check_out ? formatDuration(shift.duration_hours) : "In progress"}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 13, color: '#666' }}>
+                    {shift.check_out ? `Out: ${formatTime(shift.check_out)}` : "Currently on duty"}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Reminder Box */}
+          {isUserOnDuty && (
+            <View style={styles.reminderBox}>
+              <Text style={styles.reminderText}>Remember to check out at the end of your shift</Text>
+            </View>
+          )}
+        </>
+      ) : null}
+
       {/* Logout Button */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogoutPress}>
-          <Feather name="log-out" size={20} color={styles.logoutButtonText.color} style={{marginRight: 8}} />
-          <Text style={styles.logoutButtonText}>Logout</Text>
+        <Feather name="log-out" size={20} color={styles.logoutButtonText.color} style={{ marginRight: 8 }} />
+        <Text style={styles.logoutButtonText}>Logout</Text>
       </TouchableOpacity>
-
-      {/* Reminder Box */}
-      <View style={styles.reminderBox}>
-          <Text style={styles.reminderText}>Remember to check out at the end of your shift</Text>
-      </View>
 
       {/* Create Event Modal */}
       <Modal

@@ -13,24 +13,47 @@ import { transformTasks, taskToBackendFormat } from '../utils/taskTransform';
 const CreateTaskModal = ({ onClose, onCreateTask, professionals = [] }) => {
     const [taskTitle, setTaskTitle] = useState('');
     const [description, setDescription] = useState('');
-    const [assignTo, setAssignTo] = useState('');
-    const [priority, setPriority] = useState('Medium'); // Default priority
+    const [selectedProfessional, setSelectedProfessional] = useState(null);
+    const [showDropdown, setShowDropdown] = useState(false);
+    const [priority, setPriority] = useState('Medium');
     const [relatedCasualty, setRelatedCasualty] = useState('');
 
     const handleSubmit = () => {
-        if (!taskTitle || !description || !assignTo) {
-            Alert.alert('Required Fields Missing', 'Please fill in all required fields: Task Title, Description, and Assign To.');
+        const trimmedTitle = taskTitle.trim();
+        const trimmedDesc = description.trim();
+
+        if (!trimmedTitle) {
+            Alert.alert('Missing Title', 'Please enter a task title.');
+            return;
+        }
+        if (trimmedTitle.length > 200) {
+            Alert.alert('Title Too Long', `Task title must be 200 characters or less (currently ${trimmedTitle.length}).`);
+            return;
+        }
+        if (!trimmedDesc) {
+            Alert.alert('Missing Description', 'Please enter a task description.');
+            return;
+        }
+        if (trimmedDesc.length > 1000) {
+            Alert.alert('Description Too Long', `Description must be 1,000 characters or less (currently ${trimmedDesc.length}).`);
+            return;
+        }
+        if (!selectedProfessional) {
+            Alert.alert('Missing Assignee', 'Please select a team member to assign this task to.');
+            return;
+        }
+        if (relatedCasualty && relatedCasualty.trim().length > 2000) {
+            Alert.alert('Notes Too Long', `Related casualty notes must be 2,000 characters or less (currently ${relatedCasualty.trim().length}).`);
             return;
         }
 
-        const newTask = {
-            title: taskTitle,
-            description: description,
-            assignTo: assignTo,
+        onCreateTask({
+            title: trimmedTitle,
+            description: trimmedDesc,
+            assignToId: selectedProfessional.professional_id,
             priority: priority,
             relatedCasualty: relatedCasualty,
-        };
-        onCreateTask(newTask);
+        });
     };
 
     return (
@@ -53,7 +76,11 @@ const CreateTaskModal = ({ onClose, onCreateTask, professionals = [] }) => {
                         placeholder="e.g., Prepare transport for casualty"
                         value={taskTitle}
                         onChangeText={setTaskTitle}
+                        maxLength={200}
                     />
+                    <Text style={{ fontSize: 11, color: taskTitle.length > 180 ? '#DC3545' : '#999', textAlign: 'right', marginTop: 2 }}>
+                        {taskTitle.length}/200
+                    </Text>
 
                     <Text style={modalStyles.label}>Description <Text style={modalStyles.required}>*</Text></Text>
                     <TextInput
@@ -63,27 +90,58 @@ const CreateTaskModal = ({ onClose, onCreateTask, professionals = [] }) => {
                         onChangeText={setDescription}
                         multiline
                         numberOfLines={4}
+                        maxLength={1000}
                     />
+                    <Text style={{ fontSize: 11, color: description.length > 900 ? '#DC3545' : '#999', textAlign: 'right', marginTop: 2 }}>
+                        {description.length}/1000
+                    </Text>
 
                     <Text style={modalStyles.label}>Assign To <Text style={modalStyles.required}>*</Text></Text>
-                    <TextInput
-                        style={modalStyles.input}
-                        placeholder="Name or email of assignee"
-                        value={assignTo}
-                        onChangeText={setAssignTo}
-                    />
-                    {professionals.length > 0 && (
-                        <View style={{ marginTop: 10, marginBottom: 10 }}>
-                            <Text style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>
-                                Available ({professionals.length}):
-                            </Text>
-                            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                                {professionals.map((p, index) => (
-                                    <Text key={p.professional_id} style={{ fontSize: 11, color: '#666', marginRight: 8, marginBottom: 2 }}>
-                                        {p.name}{index < professionals.length - 1 ? ',' : ''}
+                    <TouchableOpacity
+                        style={[modalStyles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                        onPress={() => setShowDropdown(!showDropdown)}
+                    >
+                        <Text style={{ color: selectedProfessional ? '#000' : '#999', fontSize: 14, flex: 1 }}>
+                            {selectedProfessional ? `${selectedProfessional.name} (${selectedProfessional.role || 'Member'})` : 'Select a team member'}
+                        </Text>
+                        <Feather name={showDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#666" />
+                    </TouchableOpacity>
+                    {showDropdown && (
+                        <View style={{
+                            maxHeight: 180,
+                            borderWidth: 1,
+                            borderColor: '#DDD',
+                            borderRadius: 8,
+                            marginTop: 4,
+                            backgroundColor: '#FFF',
+                        }}>
+                            <ScrollView nestedScrollEnabled>
+                                {professionals.length === 0 ? (
+                                    <Text style={{ padding: 12, color: '#999', fontSize: 13, textAlign: 'center' }}>
+                                        No team members in this event
                                     </Text>
-                                ))}
-                            </View>
+                                ) : (
+                                    professionals.map((p) => (
+                                        <TouchableOpacity
+                                            key={p.professional_id}
+                                            style={{
+                                                paddingVertical: 10,
+                                                paddingHorizontal: 14,
+                                                borderBottomWidth: 1,
+                                                borderBottomColor: '#F0F0F0',
+                                                backgroundColor: selectedProfessional?.professional_id === p.professional_id ? '#E6F3FF' : '#FFF',
+                                            }}
+                                            onPress={() => {
+                                                setSelectedProfessional(p);
+                                                setShowDropdown(false);
+                                            }}
+                                        >
+                                            <Text style={{ fontSize: 14, fontWeight: '500', color: '#011F5B' }}>{p.name}</Text>
+                                            <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>{p.role || 'Member'} {p.email ? `· ${p.email}` : ''}</Text>
+                                        </TouchableOpacity>
+                                    ))
+                                )}
+                            </ScrollView>
                         </View>
                     )}
 
@@ -108,7 +166,13 @@ const CreateTaskModal = ({ onClose, onCreateTask, professionals = [] }) => {
                         placeholder="Casualty ID"
                         value={relatedCasualty}
                         onChangeText={setRelatedCasualty}
+                        maxLength={2000}
                     />
+                    {relatedCasualty.length > 0 && (
+                        <Text style={{ fontSize: 11, color: relatedCasualty.length > 1800 ? '#DC3545' : '#999', textAlign: 'right', marginTop: 2 }}>
+                            {relatedCasualty.length}/2000
+                        </Text>
+                    )}
                 </ScrollView>
 
                 <View style={modalStyles.buttonContainer}>
@@ -219,73 +283,14 @@ const TaskScreen = ({ navigation }) => {
         }, [])
     );
 
-    // Function to add a new task
     const handleCreateTask = async (newTask) => {
         if (!activeEventId) {
             Alert.alert("Error", "No active event found.");
             return;
         }
 
-        const assignToStr = (newTask && newTask.assignTo) ? String(newTask.assignTo).trim() : '';
-        if (!assignToStr) {
-            Alert.alert("Error", "Please enter a name or email for Assign To.");
-            return;
-        }
-
-        const assignToLower = assignToStr.toLowerCase();
-
-        // find professional ID from name or email (guard against null name/email)
-        let assignedProfessional = professionals.find(p => {
-            if (!p) return false;
-            const nameMatch = p.name && String(p.name).toLowerCase().includes(assignToLower);
-            const emailMatch = p.email && String(p.email).toLowerCase().includes(assignToLower);
-            return nameMatch || emailMatch;
-        });
-
-        console.log('Found locally?', !!assignedProfessional);
-
-        // if not found in local list, try to search through all groups
-        if (!assignedProfessional) {
-            try {
-                // Fetch all groups with members to search
-                const searchResponse = await groupAPI.getGroups({ include_members: true });
-                
-                if (searchResponse && searchResponse.success && searchResponse.groups) {
-                    // Search through all group members by name or email
-                    for (let i = 0; i < searchResponse.groups.length; i++) {
-                        const group = searchResponse.groups[i];
-                        if (group.members) {
-                            for (let j = 0; j < group.members.length; j++) {
-                                const member = group.members[j];
-                                if (!member) continue;
-                                const emailMatch = member.email && String(member.email).toLowerCase().includes(assignToLower);
-                                const nameMatch = member.name && String(member.name).toLowerCase().includes(assignToLower);
-                                
-                                if (emailMatch || nameMatch) {
-                                    assignedProfessional = {
-                                        professional_id: member.professional_id,
-                                        name: member.name,
-                                        email: member.email,
-                                        role: member.role,
-                                    };
-                                    break;
-                                }
-                            }
-                            
-                            if (assignedProfessional) {
-                                break;
-                            }
-                        }
-                    } 
-                }
-            } catch (searchError) {
-                Alert.alert("Error", "Could not find professional. Please enter a valid name or email (e.g., angie@pennmert.org).");
-                return;
-            }
-        }
-
-        if (!assignedProfessional || !assignedProfessional.professional_id) {
-            Alert.alert("Error", "Could not find professional. Please enter a valid name or email (e.g., angie@pennmert.org).");
+        if (!newTask.assignToId) {
+            Alert.alert("Error", "Please select a team member to assign this task to.");
             return;
         }
 
@@ -298,8 +303,9 @@ const TaskScreen = ({ navigation }) => {
 
             const taskData = {
                 event_id: activeEventId,
-                assigned_to: assignedProfessional.professional_id,
-                task_description: String(newTask.description || newTask.taskTitle || '').trim() || 'Task',
+                assigned_to: newTask.assignToId,
+                title: String(newTask.title || '').trim() || null,
+                task_description: String(newTask.description || '').trim() || 'No description provided',
                 priority: newTask.priority?.toLowerCase() || 'medium',
             };
             if (notes != null) taskData.notes = notes;
@@ -315,9 +321,14 @@ const TaskScreen = ({ navigation }) => {
             }
         } catch (error) {
             console.error('Error creating task:', error);
-            const message = (error && typeof error.message === 'string' && !error.message.includes('__DEV__'))
-                ? error.message
-                : 'Failed to create task. Please try again.';
+            let message = 'Failed to create task. Please try again.';
+            if (error.response && error.response.errors && Array.isArray(error.response.errors)) {
+                message = error.response.errors.map(e => e.msg).join('\n');
+            } else if (error.response && error.response.message) {
+                message = error.response.message;
+            } else if (error.message && !error.message.includes('__DEV__')) {
+                message = error.message;
+            }
             Alert.alert("Error", message);
         }
     };
@@ -348,7 +359,7 @@ const TaskScreen = ({ navigation }) => {
                     </TouchableOpacity>
                 )}
             </View>
-            <Text style={styles.taskDescription}>{task.description || task.task_description}</Text> 
+            <Text style={styles.taskDescription}>{task.description}</Text>
             <View style={styles.taskAssigneeRow}>
                 {activeTab === 'assignedByMe' && (
                     <Text style={styles.taskAssignee}>

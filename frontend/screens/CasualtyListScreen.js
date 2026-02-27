@@ -135,46 +135,28 @@ export default function CasualtyListScreen({ route, navigation }) {
           color="#666"
         />
 
-        {/* ALL */}
-        <TouchableOpacity
-          onPress={() => setFilterLevel("all")}
-          style={[
-            styles.filterChip,
-            filterLevel === "all" && styles.filterChipActive,
-          ]}
-        >
-          <Text
-            style={[
-              styles.filterChipText,
-              filterLevel === "all" && styles.filterChipTextActive,
-            ]}
-          >
-            All
-          </Text>
-        </TouchableOpacity>
-
-        {/* INDIVIDUAL TRIAGE FILTERS */}
-        {Object.keys(triageConfig).map((level) => (
-          <TouchableOpacity
-            key={level}
-            onPress={() => setFilterLevel(level)}
-            style={[
-              styles.filterChip,
-              filterLevel === level && {
-                backgroundColor: triageConfig[level].color,
-              },
-            ]}
-          >
-            <Text
+        {Object.keys(triageConfig).map((level) => {
+          const isActive = filterLevel === level;
+          return (
+            <TouchableOpacity
+              key={level}
+              onPress={() => setFilterLevel(isActive ? "all" : level)}
               style={[
-                styles.filterChipText,
-                filterLevel === level && { color: "#fff" },
+                styles.filterChip,
+                isActive && { backgroundColor: triageConfig[level].color },
               ]}
             >
-              {triageConfig[level].label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Text
+                style={[
+                  styles.filterChipText,
+                  isActive && { color: "#fff" },
+                ]}
+              >
+                {triageConfig[level].label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* --- LIST --- */}
@@ -266,15 +248,15 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     marginBottom: 16,
   },
 
   filterChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     backgroundColor: "#EEE",
-    borderRadius: 20,
+    borderRadius: 16,
   },
 
   filterChipActive: {

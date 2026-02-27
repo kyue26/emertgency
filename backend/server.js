@@ -7,7 +7,8 @@ const eventRoutes = require('./routes/event');
 const casualtyRoutes = require('./routes/casualties');
 const taskRoutes = require('./routes/tasks');
 const analyticsRoutes = require('./routes/analytics');
-const resourceRoutes = require('./routes/resources');  // ADD THIS LINE
+const resourceRoutes = require('./routes/resources');
+const shiftRoutes = require('./routes/shifts');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,7 +22,8 @@ app.use('/groups', groupRoutes);
 app.use('/event', eventRoutes);
 app.use('/casualties', casualtyRoutes);
 app.use('/tasks', taskRoutes);
-app.use('/resources', resourceRoutes);  // ADD THIS LINE
+app.use('/resources', resourceRoutes);
+app.use('/shifts', shiftRoutes);
 app.use('/', analyticsRoutes);
 
 app.use((err, req, res, next) => {

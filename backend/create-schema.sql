@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS shifts CASCADE;
 DROP TABLE IF EXISTS resource_request_audit_log CASCADE;
 DROP TABLE IF EXISTS resource_requests CASCADE;
 DROP TABLE IF EXISTS task_audit_log CASCADE;
@@ -180,7 +181,8 @@ CREATE TABLE tasks (
     created_by VARCHAR(50) NOT NULL REFERENCES professionals(professional_id) ON DELETE CASCADE,
     assigned_to VARCHAR(50) NOT NULL REFERENCES professionals(professional_id) ON DELETE CASCADE,
     event_id VARCHAR(50) NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
-    task_description TEXT NOT NULL CHECK (length(task_description) >= 5 AND length(task_description) <= 1000),
+    title VARCHAR(200),
+    task_description TEXT NOT NULL CHECK (length(task_description) >= 1 AND length(task_description) <= 1000),
     priority VARCHAR(20) DEFAULT 'medium',
     status VARCHAR(20) DEFAULT 'pending',
     due_date TIMESTAMP,
@@ -311,6 +313,21 @@ CREATE TABLE resource_request_audit_log (
 
 CREATE INDEX idx_resource_audit_request ON resource_request_audit_log(resource_request_id);
 CREATE INDEX idx_resource_audit_changed_at ON resource_request_audit_log(changed_at DESC);
+
+-- SHIFTS TABLE
+
+CREATE TABLE shifts (
+    shift_id VARCHAR(50) PRIMARY KEY,
+    professional_id VARCHAR(50) NOT NULL REFERENCES professionals(professional_id) ON DELETE CASCADE,
+    event_id VARCHAR(50) NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+    check_in TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    check_out TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_shifts_professional ON shifts(professional_id);
+CREATE INDEX idx_shifts_event ON shifts(event_id);
+CREATE INDEX idx_shifts_check_in ON shifts(check_in DESC);
 
 -- VIEWS
 
@@ -519,7 +536,8 @@ UNION ALL SELECT 'professional_passwords', COUNT(*) FROM professional_passwords
 UNION ALL SELECT 'injured_persons', COUNT(*) FROM injured_persons
 UNION ALL SELECT 'tasks', COUNT(*) FROM tasks
 UNION ALL SELECT 'hospitals', COUNT(*) FROM hospitals
-UNION ALL SELECT 'resource_requests', COUNT(*) FROM resource_requests;
+UNION ALL SELECT 'resource_requests', COUNT(*) FROM resource_requests
+UNION ALL SELECT 'shifts', COUNT(*) FROM shifts;
 
 SELECT 
     tablename,

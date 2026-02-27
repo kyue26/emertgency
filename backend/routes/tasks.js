@@ -226,7 +226,8 @@ router.get('/:taskId', authenticateToken, checkTaskAccess, [
 router.post('/create', authenticateToken, [
   body('event_id').notEmpty().trim(),
   body('assigned_to').notEmpty().trim(),
-  body('task_description').notEmpty().trim().isLength({ min: 5, max: 1000 }),
+  body('title').optional().trim().isLength({ max: 200 }),
+  body('task_description').notEmpty().trim().isLength({ min: 1, max: 1000 }),
   body('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
   body('due_date').optional().isISO8601().toDate(),
   body('notes').optional().trim().isLength({ max: 2000 })
@@ -242,6 +243,7 @@ router.post('/create', authenticateToken, [
     const {
       event_id,
       assigned_to,
+      title,
       task_description,
       priority,
       due_date,
@@ -314,15 +316,16 @@ router.post('/create', authenticateToken, [
 
     const result = await client.query(
       `INSERT INTO tasks 
-       (task_id, created_by, assigned_to, event_id, task_description, priority, 
+       (task_id, created_by, assigned_to, event_id, title, task_description, priority, 
         status, due_date, notes, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP) 
        RETURNING *`,
       [
         task_id, 
         req.user.professional_id, 
         assigned_to, 
         event_id, 
+        title || null,
         task_description,
         priority || 'medium', 
         'pending',
@@ -336,6 +339,7 @@ router.post('/create', authenticateToken, [
       `INSERT INTO task_audit_log (task_id, action, changed_by, details, changed_at)
        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
       [task_id, 'created', req.user.professional_id, JSON.stringify({ 
+        title,
         task_description, 
         assigned_to, 
         priority: priority || 'medium' 
@@ -375,7 +379,8 @@ router.put('/update/:taskId', authenticateToken, checkTaskAccess, [
   param('taskId').notEmpty().trim(),
   body('status').optional().isIn(['pending', 'in_progress', 'completed', 'cancelled']),
   body('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
-  body('task_description').optional().trim().isLength({ min: 5, max: 1000 }),
+  body('title').optional().trim().isLength({ max: 200 }),
+  body('task_description').optional().trim().isLength({ min: 1, max: 1000 }),
   body('due_date').optional().isISO8601().toDate(),
   body('notes').optional().trim().isLength({ max: 2000 }),
   body('assigned_to').optional().trim()
@@ -389,7 +394,7 @@ router.put('/update/:taskId', authenticateToken, checkTaskAccess, [
     }
 
     const { taskId } = req.params;
-    const { status, priority, task_description, due_date, notes, assigned_to } = req.body;
+    const { status, priority, title, task_description, due_date, notes, assigned_to } = req.body;
     const task = req.task;
 
     await client.query('BEGIN');
@@ -469,6 +474,12 @@ router.put('/update/:taskId', authenticateToken, checkTaskAccess, [
       updates.push(`priority = $${paramCount++}`);
       values.push(priority);
       changes.priority = { from: task.priority, to: priority };
+    }
+
+    if (title !== undefined && title !== task.title) {
+      updates.push(`title = $${paramCount++}`);
+      values.push(title || null);
+      changes.title = { from: task.title, to: title };
     }
 
     if (task_description && task_description !== task.task_description) {

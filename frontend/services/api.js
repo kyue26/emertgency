@@ -2,7 +2,7 @@
 // Base URL: https://emertgency.mayahuizar.com
 
 // const API_BASE_URL = 'https://emertgency.mayahuizar.com';
-const API_BASE_URL ='http://100.69.33.3:3000';
+const API_BASE_URL ='http://100.69.38.177:3000';
 
 // token storage key
 const TOKEN_KEY = '@emertgency:auth_token';
@@ -261,6 +261,13 @@ export const casualtyAPI = {
     });
   },
 
+  // DELETE /casualties/:casualtyId
+  deleteCasualty: async (casualtyId) => {
+    return await apiRequest(`/casualties/${casualtyId}`, {
+      method: 'DELETE',
+    });
+  },
+
   // GET /casualties/:casualtyId/history
   getCasualtyHistory: async (casualtyId) => {
     return await apiRequest(`/casualties/${casualtyId}/history`);
@@ -358,6 +365,22 @@ export const groupAPI = {
     return await apiRequest(`/groups/delete/${groupId}${queryString}`, {
       method: 'DELETE',
     });
+  },
+};
+
+// shift endpoints
+
+export const shiftAPI = {
+  checkIn: async () => {
+    return await apiRequest('/shifts/check-in', { method: 'POST' });
+  },
+
+  checkOut: async () => {
+    return await apiRequest('/shifts/check-out', { method: 'POST' });
+  },
+
+  getMyShifts: async () => {
+    return await apiRequest('/shifts/my-shifts');
   },
 };
 

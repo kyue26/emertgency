@@ -31,8 +31,8 @@ export const transformTask = (backendTask) => {
     
     // task content
     task_description: backendTask.task_description,
-    title: backendTask.task_description, 
-    description: backendTask.task_description, 
+    title: backendTask.title || backendTask.task_description,
+    description: backendTask.task_description,
     
     // assignment
     assigned_to: backendTask.assigned_to,
@@ -109,7 +109,8 @@ export const taskToBackendFormat = (frontendTask) => {
   };
   
   return {
-    task_description: frontendTask.task_description || frontendTask.title || frontendTask.description,
+    title: frontendTask.title || null,
+    task_description: frontendTask.task_description || frontendTask.description,
     assigned_to: frontendTask.assigned_to,
     event_id: frontendTask.event_id,
     priority: priorityReverseMap[frontendTask.priority] || frontendTask.priority?.toLowerCase() || 'medium',
