@@ -16,7 +16,8 @@ const checkEventAccess = async (req, res, next) => {
                 SELECT 1 FROM professionals p
                 JOIN camps c ON p.current_camp_id = c.camp_id
                 WHERE c.event_id = e.event_id AND p.professional_id = $1
-              ) as has_access
+              ) as in_camp,
+              (SELECT p2.current_event_id FROM professionals p2 WHERE p2.professional_id = $1) as my_current_event_id
        FROM events e WHERE e.event_id = $2`,
       [req.user.professional_id, eventId]
     );
@@ -26,9 +27,10 @@ const checkEventAccess = async (req, res, next) => {
     }
 
     const event = result.rows[0];
+    const inEvent = event.my_current_event_id === eventId;
 
-    // Commanders can access any event, others need to be assigned
-    if (req.user.role !== 'Commander' && !event.has_access) {
+    // Commanders can access any event; others need to be in the event (current_event_id) or in a camp in it
+    if (req.user.role !== 'Commander' && !event.in_camp && !inEvent) {
       return res.status(403).json({
         success: false,
         message: 'You do not have access to this event'
@@ -80,14 +82,9 @@ router.get('/', authenticateToken, [
     const params = [];
     let paramCount = 1;
 
-    // Filter by events user has access to (unless Commander)
+    // Filter by events user has access to (unless Commander): show all casualties in user's current event
     if (req.user.role !== 'Commander') {
-      conditions.push(`EXISTS(
-        SELECT 1 FROM camps c
-        JOIN professionals p ON p.current_camp_id = c.camp_id
-        WHERE c.event_id = ip.event_id
-        AND p.professional_id = $${paramCount++}
-      )`);
+      conditions.push(`ip.event_id = (SELECT current_event_id FROM professionals WHERE professional_id = $${paramCount++})`);
       params.push(req.user.professional_id);
     }
 
@@ -338,13 +335,14 @@ router.put('/update/:casualtyId/status', authenticateToken, [
 
     const casualty = currentState.rows[0];
 
-    // Check access rights
+    // Check access: user must be in event (current_event_id) or in a camp in this event
     if (req.user.role !== 'Commander') {
       const accessCheck = await client.query(
         `SELECT 1 FROM professionals p
-         JOIN camps c ON p.current_camp_id = c.camp_id
-         WHERE c.event_id = $1 AND p.professional_id = $2`,
-        [casualty.event_id, req.user.professional_id]
+         WHERE p.professional_id = $1
+         AND (p.current_event_id = $2
+              OR EXISTS (SELECT 1 FROM camps c WHERE c.camp_id = p.current_camp_id AND c.event_id = $2))`,
+        [req.user.professional_id, casualty.event_id]
       );
 
       if (accessCheck.rows.length === 0) {

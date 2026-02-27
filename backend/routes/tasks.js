@@ -269,9 +269,9 @@ router.post('/create', authenticateToken, [
       });
     }
 
-    // Verify assigned professional exists and has access to event
+    // Verify assigned professional exists and is in this event (current_event_id or in a camp in event)
     const professionalCheck = await client.query(
-      `SELECT p.professional_id, p.name, p.email, p.current_camp_id, c.event_id
+      `SELECT p.professional_id, p.name, p.email, p.current_event_id, p.current_camp_id, c.event_id as camp_event_id
        FROM professionals p
        LEFT JOIN camps c ON p.current_camp_id = c.camp_id
        WHERE p.professional_id = $1`,
@@ -287,9 +287,10 @@ router.post('/create', authenticateToken, [
     }
 
     const professional = professionalCheck.rows[0];
+    const professionalInEvent = professional.current_event_id === event_id || professional.camp_event_id === event_id;
 
-    // Warn if professional not assigned to this event
-    if (professional.event_id !== event_id && req.user.role !== 'Commander') {
+    // Reject if professional not in this event (unless Commander)
+    if (!professionalInEvent && req.user.role !== 'Commander') {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
         success: false, 
