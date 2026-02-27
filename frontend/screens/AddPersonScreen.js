@@ -314,7 +314,7 @@ const AddPersonScreen = ({ navigation }) => {
         style={{ flex: 1 }}
         contentContainerStyle={[
           styles.container,
-          { paddingBottom: 80 },
+          { paddingBottom: 100 },
         ]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -587,64 +587,79 @@ const AddPersonScreen = ({ navigation }) => {
           )}
         </View>
 
-        {/* Action Buttons */}
-        <View
+      </ScrollView>
+
+      {/* Floating Action Buttons */}
+      <View
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          paddingHorizontal: 20,
+          paddingVertical: 14,
+          backgroundColor: '#FFF',
+          borderTopWidth: 1,
+          borderTopColor: '#E5E7EB',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+          elevation: 8,
+        }}
+      >
+        <TouchableOpacity
+          onPress={handleCancel}
           style={{
-            flexDirection: "row",
-            marginBottom: 20,
+            flex: 1,
+            borderWidth: 1,
+            borderColor: "#D1D5DC",
+            borderRadius: 8,
+            paddingVertical: 14,
+            alignItems: "center",
+            marginRight: 8,
+            backgroundColor: '#FFF',
           }}
         >
-          <TouchableOpacity
-            onPress={handleCancel}
+          <Text
             style={{
-              flex: 1,
-              borderWidth: 1,
-              borderColor: "#D1D5DC",
-              borderRadius: 8,
-              paddingVertical: 12,
-              alignItems: "center",
-              marginRight: 8,
+              color: "#111827",
+              fontSize: 16,
+              fontWeight: "500",
             }}
           >
+            Cancel
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={handleSubmit}
+          disabled={loading || loadingEvent || !activeEventId}
+          style={{
+            flex: 1,
+            backgroundColor: loading || loadingEvent || !activeEventId ? "#999" : "#011F5B",
+            borderRadius: 8,
+            paddingVertical: 14,
+            alignItems: "center",
+            marginLeft: 8,
+          }}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
             <Text
               style={{
-                color: "#111827",
+                color: "#FFFFFF",
                 fontSize: 16,
-                fontWeight: "500",
+                fontWeight: "600",
               }}
             >
-              Cancel
+              Add Casualty
             </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handleSubmit}
-            disabled={loading || loadingEvent || !activeEventId}
-            style={{
-              flex: 1,
-              backgroundColor: loading || loadingEvent || !activeEventId ? "#999" : "#011F5B",
-              borderRadius: 8,
-              paddingVertical: 12,
-              alignItems: "center",
-              marginLeft: 8,
-            }}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text
-                style={{
-                  color: "#FFFFFF",
-                  fontSize: 16,
-                  fontWeight: "600",
-                }}
-              >
-                Add Casualty
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+          )}
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
