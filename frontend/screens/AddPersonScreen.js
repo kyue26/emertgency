@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import styles from "../styles/AddPersonModalStyles";
 import { Dropdown } from "react-native-element-dropdown";
 import { casualtyAPI, eventAPI } from "../services/api";
@@ -136,29 +137,33 @@ const AddPersonScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [loadingEvent, setLoadingEvent] = useState(true);
 
-  // get current event on mount
-  useEffect(() => {
-    const fetchCurrentEvent = async () => {
-      try {
-        const response = await eventAPI.getCurrentEvent();
-        if (response.success && response.event) {
-          setCurrentEvent(response.event);
-          setActiveEventId(response.event.event_id);
-        } else {
-          // No current event - don't show alert, just set to null
-          setCurrentEvent(null);
-          setActiveEventId(null);
-        }
-      } catch (error) {
-        console.error('Error fetching current event:', error);
+  const fetchCurrentEvent = useCallback(async () => {
+    setLoadingEvent(true);
+    try {
+      const response = await eventAPI.getCurrentEvent();
+      if (response.success && response.event) {
+        setCurrentEvent(response.event);
+        setActiveEventId(response.event.event_id);
+      } else {
+        // No current event - don't show alert, just set to null
         setCurrentEvent(null);
         setActiveEventId(null);
-      } finally {
-        setLoadingEvent(false);
       }
-    };
-    fetchCurrentEvent();
+    } catch (error) {
+      console.error('Error fetching current event:', error);
+      setCurrentEvent(null);
+      setActiveEventId(null);
+    } finally {
+      setLoadingEvent(false);
+    }
   }, []);
+
+  // get current event on mount + whenever this screen is focused again
+  useFocusEffect(
+    useCallback(() => {
+      fetchCurrentEvent();
+    }, [fetchCurrentEvent])
+  );
 
   const handleCancel = () => {
     setForm(INITIAL_FORM_STATE);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Alert,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { casualtyAPI, eventAPI } from "../services/api";
 import { transformCasualties } from "../utils/casualtyTransform";
 
@@ -29,13 +30,15 @@ export default function CasualtyListScreen({ route, navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [activeEventId, setActiveEventId] = useState(null);
 
-  const loadCasualties = async () => {
+  const loadCasualties = useCallback(async () => {
     try {
-      // get active event first
-      const eventsResponse = await eventAPI.getEvents({ status: 'in_progress', limit: 1 });
+      setLoading(true);
+
+      // get the event the current user is actually in
+      const currentEventResponse = await eventAPI.getCurrentEvent();
       
-      if (eventsResponse.success && eventsResponse.events.length > 0) {
-        const event = eventsResponse.events[0];
+      if (currentEventResponse.success && currentEventResponse.event) {
+        const event = currentEventResponse.event;
         setActiveEventId(event.event_id);
         
         // get casualties
@@ -58,14 +61,17 @@ export default function CasualtyListScreen({ route, navigation }) {
       console.error('Error loading casualties:', error);
       Alert.alert("Error", "Failed to load casualties.");
     } finally {
-      setLoading(false);
       setRefreshing(false);
+      setLoading(false);
     }
-  };
+  }, [filterLevel]);
 
-  useEffect(() => {
-    loadCasualties();
-  }, [filterLevel]); // reload when filter changes
+  // reload when filter changes and whenever this screen regains focus
+  useFocusEffect(
+    useCallback(() => {
+      loadCasualties();
+    }, [loadCasualties])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);

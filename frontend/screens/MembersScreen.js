@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import styles from "../styles/MembersScreenStyles";
 import { authAPI, eventAPI } from "../services/api";
 
@@ -172,9 +173,10 @@ const MembersScreen = () => {
       console.log('Professionals API response:', response);
       
       if (response.success && response.professionals) {
-        // Filter to only show professionals in the current event
+        // Filter to only show professionals in the current event (compare as strings for consistency)
+        const eventIdStr = String(eventId);
         const eventMembers = response.professionals.filter(
-          p => p.current_event_id === eventId
+          p => p != null && String(p.current_event_id) === eventIdStr
         );
         
         console.log('Event members found:', eventMembers.length);
@@ -204,9 +206,12 @@ const MembersScreen = () => {
     }
   };
 
-  useEffect(() => {
-    loadMembers();
-  }, []);
+  // Refetch whenever this screen gains focus (e.g. switching to Team tab)
+  useFocusEffect(
+    useCallback(() => {
+      loadMembers();
+    }, [])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
