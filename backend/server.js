@@ -4,6 +4,7 @@ const cors = require('cors');
 const authRoutes = require('./routes/auth');
 const groupRoutes = require('./routes/group');
 const eventRoutes = require('./routes/event');
+const campRoutes = require('./routes/camps');
 const casualtyRoutes = require('./routes/casualties');
 const taskRoutes = require('./routes/tasks');
 const analyticsRoutes = require('./routes/analytics');
@@ -19,7 +20,8 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use('/auth', authRoutes);
 app.use('/groups', groupRoutes);
-app.use('/event', eventRoutes);
+app.use('/events', eventRoutes);
+app.use('/camps', campRoutes);
 app.use('/casualties', casualtyRoutes);
 app.use('/tasks', taskRoutes);
 app.use('/resources', resourceRoutes);

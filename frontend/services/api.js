@@ -169,68 +169,113 @@ export const authAPI = {
 // event endpoints
 
 export const eventAPI = {
-  // GET /event
+  // GET /events
   getEvents: async (params = {}) => {
     const queryString = new URLSearchParams(params).toString();
-    const endpoint = queryString ? `/event?${queryString}` : '/event';
+    const endpoint = queryString ? `/events?${queryString}` : '/events';
     return await apiRequest(endpoint);
   },
 
-  // GET /event/:eventId
+  // GET /events/:eventId
   getEvent: async (eventId) => {
-    return await apiRequest(`/event/${eventId}`);
+    return await apiRequest(`/events/${eventId}`);
   },
 
-  // POST /event/create
+  // GET /events/:eventId/statistics
+  getEventStatistics: async (eventId) => {
+    return await apiRequest(`/events/${eventId}/statistics`);
+  },
+
+  // POST /events/create
   createEvent: async (eventData) => {
-    return await apiRequest('/event/create', {
+    return await apiRequest('/events/create', {
       method: 'POST',
       body: JSON.stringify(eventData),
     });
   },
 
-  // PUT /event/update/:eventId
+  // PUT /events/update/:eventId
   updateEvent: async (eventId, updates) => {
-    return await apiRequest(`/event/update/${eventId}`, {
+    return await apiRequest(`/events/update/${eventId}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
     });
   },
 
-  // DELETE /event/delete/:eventId
+  // DELETE /events/delete/:eventId
   deleteEvent: async (eventId, force = false) => {
     const queryString = force ? '?force=true' : '';
-    return await apiRequest(`/event/delete/${eventId}${queryString}`, {
+    return await apiRequest(`/events/delete/${eventId}${queryString}`, {
       method: 'DELETE',
     });
   },
 
-  // GET /event/:eventId/invite-code
+  // GET /events/:eventId/invite-code
   getInviteCode: async (eventId) => {
-    return await apiRequest(`/event/${eventId}/invite-code`);
+    return await apiRequest(`/events/${eventId}/invite-code`);
   },
 
-  // POST /event/join
+  // POST /events/join
   joinEvent: async (inviteCode, campId) => {
     const body = { invite_code: inviteCode };
     if (campId) {
       body.camp_id = campId;
     }
-    return await apiRequest('/event/join', {
+    return await apiRequest('/events/join', {
       method: 'POST',
       body: JSON.stringify(body),
     });
   },
 
-  // GET /event/current
+  // GET /events/current
   getCurrentEvent: async () => {
-    return await apiRequest('/event/current');
+    return await apiRequest('/events/current');
   },
 
-  // POST /event/leave
+  // POST /events/leave
   leaveEvent: async () => {
-    return await apiRequest('/event/leave', {
+    return await apiRequest('/events/leave', {
       method: 'POST',
+    });
+  },
+};
+
+// camp endpoints
+
+export const campAPI = {
+  // GET /camps (optional ?eventId filter)
+  getCamps: async (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/camps?${queryString}` : '/camps';
+    return await apiRequest(endpoint);
+  },
+
+  // GET /camps/:id
+  getCamp: async (id) => {
+    return await apiRequest(`/camps/${id}`);
+  },
+
+  // POST /camps
+  createCamp: async (campData) => {
+    return await apiRequest('/camps', {
+      method: 'POST',
+      body: JSON.stringify(campData),
+    });
+  },
+
+  // PUT /camps/:id
+  updateCamp: async (id, updates) => {
+    return await apiRequest(`/camps/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  // DELETE /camps/:id (?force=true if camp has assignments)
+  deleteCamp: async (id, force = false) => {
+    const queryString = force ? '?force=true' : '';
+    return await apiRequest(`/camps/${id}${queryString}`, {
+      method: 'DELETE',
     });
   },
 };
@@ -242,6 +287,14 @@ export const casualtyAPI = {
   getCasualties: async (params = {}) => {
     const queryString = new URLSearchParams(params).toString();
     const endpoint = queryString ? `/casualties?${queryString}` : '/casualties';
+    return await apiRequest(endpoint);
+  },
+
+  // GET /casualties/statistics (optional ?event_id for event-scoped stats)
+  getCasualtyStatistics: async (eventId = null) => {
+    const params = eventId ? { event_id: eventId } : {};
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/casualties/statistics?${queryString}` : '/casualties/statistics';
     return await apiRequest(endpoint);
   },
 

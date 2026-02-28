@@ -161,6 +161,69 @@ router.get('/', authenticateToken, [
   }
 });
 
+// GET /casualties/statistics - by priority color (must be before /:casualtyId routes)
+router.get('/statistics', authenticateToken, async (req, res) => {
+  try {
+    const eventId = req.query.event_id;
+
+    let sqlQuery = `
+      SELECT 
+        color,
+        COUNT(*) FILTER (WHERE hospital_status IS NULL OR hospital_status = '') as in_treatment,
+        COUNT(*) FILTER (WHERE hospital_status IS NOT NULL AND hospital_status != '') as transported,
+        COUNT(*) as total
+      FROM injured_persons
+    `;
+    const params = [];
+
+    if (eventId) {
+      sqlQuery += ' WHERE event_id = $1';
+      params.push(eventId);
+    }
+
+    sqlQuery += `
+      GROUP BY color
+      ORDER BY 
+        CASE color
+          WHEN 'red' THEN 1
+          WHEN 'yellow' THEN 2
+          WHEN 'green' THEN 3
+          WHEN 'black' THEN 4
+        END
+    `;
+
+    const result = await pool.query(sqlQuery, params);
+
+    const statistics = {
+      red: { color: 'red', in_treatment: 0, transported: 0, total: 0 },
+      yellow: { color: 'yellow', in_treatment: 0, transported: 0, total: 0 },
+      green: { color: 'green', in_treatment: 0, transported: 0, total: 0 },
+      black: { color: 'black', in_treatment: 0, transported: 0, total: 0 }
+    };
+
+    result.rows.forEach(row => {
+      statistics[row.color] = {
+        color: row.color,
+        in_treatment: parseInt(row.in_treatment, 10),
+        transported: parseInt(row.transported, 10),
+        total: parseInt(row.total, 10)
+      };
+    });
+
+    res.json({
+      success: true,
+      data: statistics
+    });
+  } catch (error) {
+    console.error('Casualty statistics error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch casualty statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // POST /casualties/add
 router.post('/add', authenticateToken, checkEventAccess, [
   body('event_id').notEmpty().trim(),
