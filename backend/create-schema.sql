@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS drill_sessions CASCADE;
 DROP TABLE IF EXISTS shifts CASCADE;
 DROP TABLE IF EXISTS resource_request_audit_log CASCADE;
 DROP TABLE IF EXISTS resource_requests CASCADE;
@@ -329,6 +330,27 @@ CREATE INDEX idx_shifts_professional ON shifts(professional_id);
 CREATE INDEX idx_shifts_event ON shifts(event_id);
 CREATE INDEX idx_shifts_check_in ON shifts(check_in DESC);
 
+-- DRILL SESSIONS TABLE
+
+CREATE TABLE drill_sessions (
+  id SERIAL PRIMARY KEY,
+  drill_name VARCHAR(255) NOT NULL,
+  location VARCHAR(255),
+  drill_date DATE NOT NULL,
+  created_by VARCHAR(50) REFERENCES professionals(professional_id) ON DELETE CASCADE,
+  group_id VARCHAR(50),
+  is_active BOOLEAN DEFAULT false,
+  status VARCHAR(20) DEFAULT 'draft',
+  role_assignments JSONB DEFAULT '{}',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT check_drill_status CHECK (status IN ('draft', 'active', 'completed'))
+);
+
+CREATE INDEX idx_drill_sessions_active ON drill_sessions(is_active);
+CREATE INDEX idx_drill_sessions_group ON drill_sessions(group_id);
+CREATE INDEX idx_drill_sessions_status ON drill_sessions(status);
+
 -- VIEWS
 
 CREATE VIEW active_events_view AS
@@ -528,6 +550,9 @@ CREATE TRIGGER update_hospitals_updated_at BEFORE UPDATE ON hospitals
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_resource_requests_updated_at BEFORE UPDATE ON resource_requests
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_drill_sessions_updated_at BEFORE UPDATE ON drill_sessions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER check_group_capacity_trigger

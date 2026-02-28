@@ -229,6 +229,38 @@ router.post('/login', [
   }
 });
 
+// GET /auth/me - Get current user info
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT professional_id, name, email, phone_number, role, group_id, 
+              current_event_id, current_camp_id, created_at, updated_at
+       FROM professionals
+       WHERE professional_id = $1`,
+      [req.user.professional_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Professional not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      user: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Get me error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // POST /auth/change-password
 router.post('/change-password', authenticateToken, [
   body('currentPassword').notEmpty(),
