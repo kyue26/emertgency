@@ -233,7 +233,7 @@ router.post('/login', [
 router.get('/me', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT professional_id, name, email, phone_number, role, group_id,
+      `SELECT professional_id, name, email, phone_number, role, group_id, 
               current_event_id, current_camp_id, created_at, updated_at
        FROM professionals
        WHERE professional_id = $1`,
