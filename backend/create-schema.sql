@@ -86,7 +86,7 @@ CREATE TABLE professionals (
     current_camp_id VARCHAR(50) REFERENCES camps(camp_id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT check_professional_role CHECK (role IN ('MERT Member', 'Commander', 'Medical Officer'))
+    CONSTRAINT check_professional_role CHECK (role IN ('MERT Member', 'Commander', 'Medical Officer', 'Staging Officer', 'Triage Officer', 'Treatment Officer', 'Transport Officer'))
 );
 
 CREATE INDEX idx_professionals_email ON professionals(email);
@@ -410,6 +410,27 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON events
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_camps_updated_at BEFORE UPDATE ON camps
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_groups_updated_at BEFORE UPDATE ON groups
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_professionals_updated_at BEFORE UPDATE ON professionals
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_injured_persons_updated_at BEFORE UPDATE ON injured_persons
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON tasks
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_hospitals_updated_at BEFORE UPDATE ON hospitals
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 CREATE OR REPLACE FUNCTION check_group_capacity()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -432,6 +453,11 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE TRIGGER check_group_capacity_trigger
+    BEFORE INSERT OR UPDATE OF group_id ON professionals
+    FOR EACH ROW
+    EXECUTE FUNCTION check_group_capacity();
 
 CREATE OR REPLACE FUNCTION check_camp_capacity()
 RETURNS TRIGGER AS $$
