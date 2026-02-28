@@ -166,6 +166,34 @@ export const authAPI = {
   },
 };
 
+// professional endpoints (REST-style; list also available via authAPI.getProfessionals)
+export const professionalAPI = {
+  // GET /professionals
+  getProfessionals: async (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/professionals?${queryString}` : '/professionals';
+    return await apiRequest(endpoint);
+  },
+
+  // GET /professionals/:id
+  getProfessional: async (id) => {
+    return await apiRequest(`/professionals/${id}`);
+  },
+
+  // GET /professionals/:id/tasks
+  getProfessionalTasks: async (id) => {
+    return await apiRequest(`/professionals/${id}/tasks`);
+  },
+
+  // PUT /professionals/:id
+  updateProfessional: async (id, data) => {
+    return await apiRequest(`/professionals/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
 // event endpoints
 
 export const eventAPI = {
@@ -298,6 +326,19 @@ export const casualtyAPI = {
     return await apiRequest(endpoint);
   },
 
+  // GET /casualties/:casualtyId - get single casualty (REST-style)
+  getCasualty: async (casualtyId) => {
+    return await apiRequest(`/casualties/${casualtyId}`);
+  },
+
+  // POST /casualties - create (REST-style; accepts eventId, optional injuredPersonId)
+  createCasualty: async (casualtyData) => {
+    return await apiRequest('/casualties', {
+      method: 'POST',
+      body: JSON.stringify(casualtyData),
+    });
+  },
+
   // POST /casualties/add
   addCasualty: async (casualtyData) => {
     return await apiRequest('/casualties/add', {
@@ -324,6 +365,11 @@ export const casualtyAPI = {
   // GET /casualties/:casualtyId/history
   getCasualtyHistory: async (casualtyId) => {
     return await apiRequest(`/casualties/${casualtyId}/history`);
+  },
+
+  // GET /casualties/:casualtyId/audit - audit log (same data as history, different key)
+  getCasualtyAudit: async (casualtyId) => {
+    return await apiRequest(`/casualties/${casualtyId}/audit`);
   },
 };
 

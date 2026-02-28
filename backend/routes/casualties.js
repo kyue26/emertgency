@@ -224,6 +224,116 @@ router.get('/statistics', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /casualties - Create (REST-style, same as /add; accepts eventId, optional injuredPersonId)
+router.post('/', authenticateToken, checkEventAccess, [
+  body('event_id').optional().trim(),
+  body('eventId').optional().trim(),
+  body('camp_id').optional().trim(),
+  body('campId').optional().trim(),
+  body('color').isIn(['green', 'yellow', 'red', 'black']),
+  body('breathing').optional().isBoolean(),
+  body('conscious').optional().isBoolean(),
+  body('bleeding').optional().isBoolean(),
+  body('hospital_status').optional().trim().isLength({ max: 255 }),
+  body('hospitalStatus').optional().trim().isLength({ max: 255 }),
+  body('other_information').optional().trim().isLength({ max: 1000 }),
+  body('otherInformation').optional().trim().isLength({ max: 1000 }),
+  body('injured_person_id').optional().trim(),
+  body('injuredPersonId').optional().trim()
+], async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+    const event_id = req.body.event_id || req.body.eventId;
+    if (!event_id) {
+      return res.status(400).json({ success: false, message: 'event_id or eventId is required' });
+    }
+    const camp_id = req.body.camp_id || req.body.campId;
+    const color = req.body.color;
+    const breathing = req.body.breathing;
+    const conscious = req.body.conscious;
+    const bleeding = req.body.bleeding;
+    const hospital_status = req.body.hospital_status || req.body.hospitalStatus;
+    const other_information = req.body.other_information || req.body.otherInformation;
+    const injured_person_id = req.body.injured_person_id || req.body.injuredPersonId || `inj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    await client.query('BEGIN');
+
+    const eventCheck = await client.query(
+      'SELECT event_id, status FROM events WHERE event_id = $1',
+      [event_id]
+    );
+    if (eventCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+    if (eventCheck.rows[0].status === 'finished') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'Cannot add casualties to finished events' });
+    }
+
+    if (camp_id) {
+      const campCheck = await client.query(
+        'SELECT camp_id, event_id FROM camps WHERE camp_id = $1',
+        [camp_id]
+      );
+      if (campCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ success: false, message: 'Camp not found' });
+      }
+      if (campCheck.rows[0].event_id !== event_id) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ success: false, message: 'Camp does not belong to specified event' });
+      }
+    }
+
+    const result = await client.query(
+      `INSERT INTO injured_persons
+       (injured_person_id, event_id, camp_id, color, breathing, conscious, bleeding,
+        hospital_status, other_information, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
+       RETURNING *`,
+      [
+        injured_person_id,
+        event_id,
+        camp_id || null,
+        color,
+        breathing ?? null,
+        conscious ?? null,
+        bleeding ?? null,
+        hospital_status || null,
+        other_information || null,
+        req.user.professional_id
+      ]
+    );
+
+    await logCasualtyChange(client, injured_person_id, req.user.professional_id, { action: 'created' }, null);
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      success: true,
+      message: 'Casualty created successfully',
+      casualty: result.rows[0]
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Create casualty error:', error.message);
+    if (error.code === '23505') {
+      return res.status(409).json({ success: false, message: 'Casualty ID already exists' });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create casualty',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
+  }
+});
+
 // POST /casualties/add
 router.post('/add', authenticateToken, checkEventAccess, [
   body('event_id').notEmpty().trim(),
@@ -586,6 +696,242 @@ router.get('/:casualtyId/history', authenticateToken, [
       success: false,
       message: 'Failed to retrieve history'
     });
+  }
+});
+
+// GET /casualties/:casualtyId/audit - Alias for /history (same as injured-persons API)
+router.get('/:casualtyId/audit', authenticateToken, [
+  param('casualtyId').notEmpty().trim()
+], async (req, res) => {
+  try {
+    const { casualtyId } = req.params;
+
+    const casualtyCheck = await pool.query(
+      'SELECT ip.event_id FROM injured_persons ip WHERE ip.injured_person_id = $1',
+      [casualtyId]
+    );
+
+    if (casualtyCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Casualty not found' });
+    }
+
+    const history = await pool.query(
+      `SELECT * FROM casualty_audit_log WHERE casualty_id = $1 ORDER BY changed_at DESC`,
+      [casualtyId]
+    );
+
+    res.json({
+      success: true,
+      audit: history.rows
+    });
+  } catch (error) {
+    console.error('Get casualty audit error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve audit history'
+    });
+  }
+});
+
+// GET /casualties/:casualtyId - Get single casualty by ID (REST-style)
+router.get('/:casualtyId', authenticateToken, [
+  param('casualtyId').notEmpty().trim()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { casualtyId } = req.params;
+
+    const result = await pool.query(
+      'SELECT * FROM injured_persons WHERE injured_person_id = $1',
+      [casualtyId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Casualty not found'
+      });
+    }
+
+    // Access check: Commander or in event/camp
+    if (req.user.role !== 'Commander') {
+      const accessCheck = await pool.query(
+        `SELECT 1 FROM professionals p
+         WHERE p.professional_id = $1
+         AND (p.current_event_id = $2
+              OR EXISTS (SELECT 1 FROM camps c WHERE c.camp_id = p.current_camp_id AND c.event_id = $2))`,
+        [req.user.professional_id, result.rows[0].event_id]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this casualty'
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      casualty: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Get casualty error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve casualty',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// PUT /casualties/:casualtyId - REST-style full update (same as /update/:casualtyId/status)
+router.put('/:casualtyId', authenticateToken, [
+  param('casualtyId').notEmpty().trim(),
+  body('color').optional().isIn(['green', 'yellow', 'red', 'black']),
+  body('breathing').optional().isBoolean(),
+  body('conscious').optional().isBoolean(),
+  body('bleeding').optional().isBoolean(),
+  body('hospital_status').optional().trim().isLength({ max: 255 }),
+  body('hospitalStatus').optional().trim().isLength({ max: 255 }),
+  body('other_information').optional().trim().isLength({ max: 1000 }),
+  body('otherInformation').optional().trim().isLength({ max: 1000 }),
+  body('camp_id').optional().trim(),
+  body('campId').optional().trim()
+], async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { casualtyId } = req.params;
+    const color = req.body.color;
+    const breathing = req.body.breathing;
+    const conscious = req.body.conscious;
+    const bleeding = req.body.bleeding;
+    const hospital_status = req.body.hospital_status || req.body.hospitalStatus;
+    const other_information = req.body.other_information || req.body.otherInformation;
+    const camp_id = req.body.camp_id || req.body.campId;
+
+    await client.query('BEGIN');
+
+    const currentState = await client.query(
+      `SELECT ip.*, e.status as event_status
+       FROM injured_persons ip
+       JOIN events e ON ip.event_id = e.event_id
+       WHERE ip.injured_person_id = $1`,
+      [casualtyId]
+    );
+
+    if (currentState.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Casualty not found' });
+    }
+
+    const casualty = currentState.rows[0];
+
+    if (req.user.role !== 'Commander') {
+      const accessCheck = await client.query(
+        `SELECT 1 FROM professionals p
+         WHERE p.professional_id = $1
+         AND (p.current_event_id = $2
+              OR EXISTS (SELECT 1 FROM camps c WHERE c.camp_id = p.current_camp_id AND c.event_id = $2))`,
+        [req.user.professional_id, casualty.event_id]
+      );
+      if (accessCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ success: false, message: 'You do not have access to modify this casualty' });
+      }
+    }
+
+    if (casualty.event_status === 'finished') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'Cannot modify casualties in finished events' });
+    }
+
+    const updates = [];
+    const values = [];
+    const changes = {};
+    let paramCount = 1;
+
+    if (color !== undefined && color !== casualty.color) {
+      updates.push(`color = $${paramCount++}`);
+      values.push(color);
+      changes.color = { from: casualty.color, to: color };
+    }
+    if (breathing !== undefined && breathing !== casualty.breathing) {
+      updates.push(`breathing = $${paramCount++}`);
+      values.push(breathing);
+      changes.breathing = { from: casualty.breathing, to: breathing };
+    }
+    if (conscious !== undefined && conscious !== casualty.conscious) {
+      updates.push(`conscious = $${paramCount++}`);
+      values.push(conscious);
+      changes.conscious = { from: casualty.conscious, to: conscious };
+    }
+    if (bleeding !== undefined && bleeding !== casualty.bleeding) {
+      updates.push(`bleeding = $${paramCount++}`);
+      values.push(bleeding);
+      changes.bleeding = { from: casualty.bleeding, to: bleeding };
+    }
+    if (hospital_status !== undefined && hospital_status !== casualty.hospital_status) {
+      updates.push(`hospital_status = $${paramCount++}`);
+      values.push(hospital_status || null);
+      changes.hospital_status = { from: casualty.hospital_status, to: hospital_status };
+    }
+    if (other_information !== undefined && other_information !== casualty.other_information) {
+      updates.push(`other_information = $${paramCount++}`);
+      values.push(other_information || null);
+      changes.other_information = { from: casualty.other_information, to: other_information };
+    }
+    if (camp_id !== undefined && camp_id !== casualty.camp_id) {
+      updates.push(`camp_id = $${paramCount++}`);
+      values.push(camp_id || null);
+      changes.camp_id = { from: casualty.camp_id, to: camp_id };
+    }
+
+    if (updates.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'No changes detected' });
+    }
+
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    updates.push(`updated_by = $${paramCount++}`);
+    values.push(req.user.professional_id);
+    values.push(casualtyId);
+
+    const result = await client.query(
+      `UPDATE injured_persons SET ${updates.join(', ')} WHERE injured_person_id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    await logCasualtyChange(client, casualtyId, req.user.professional_id, changes, casualty);
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Casualty updated successfully',
+      casualty: result.rows[0],
+      changes: Object.keys(changes)
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Update casualty error:', error.message);
+    if (error.code === '23503') {
+      return res.status(400).json({ success: false, message: 'Invalid camp_id' });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update casualty',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
   }
 });
 
