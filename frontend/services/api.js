@@ -486,15 +486,59 @@ export const shiftAPI = {
 
 // analytics endpoints
 
+// hospital endpoints (CRUD)
+
+export const hospitalAPI = {
+  // GET /hospitals (optional ?isActive=true/false)
+  getHospitals: async (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/hospitals?${queryString}` : '/hospitals';
+    return await apiRequest(endpoint);
+  },
+
+  // GET /hospitals/:id
+  getHospital: async (id) => {
+    return await apiRequest(`/hospitals/${id}`);
+  },
+
+  // POST /hospitals
+  createHospital: async (data) => {
+    return await apiRequest('/hospitals', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // PUT /hospitals/:id
+  updateHospital: async (id, data) => {
+    return await apiRequest(`/hospitals/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // DELETE /hospitals/:id
+  deleteHospital: async (id) => {
+    return await apiRequest(`/hospitals/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 export const analyticsAPI = {
   // GET /locations/active
   getActiveLocations: async () => {
     return await apiRequest('/locations/active');
   },
 
-  // GET /hospitals
-  getHospitals: async () => {
-    return await apiRequest('/hospitals');
+  // GET /hospitals - list of hospitals (from hospitals API)
+  getHospitals: async (params = {}) => {
+    return await hospitalAPI.getHospitals(params);
+  },
+
+  // GET /reports/hospital-transfers - hospitals + transfer statistics
+  getHospitalTransfers: async () => {
+    return await apiRequest('/reports/hospital-transfers');
   },
 
   // GET /reports/summary
