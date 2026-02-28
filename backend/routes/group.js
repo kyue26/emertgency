@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const pool = require('../config/database');
-const { authenticateToken } = require('../config/auth');
+const { authenticateToken, authorize } = require('../config/auth');
 
 const router = express.Router();
 
@@ -40,12 +40,24 @@ const requireCommanderOrLead = async (req, res, next) => {
 router.get('/', authenticateToken, [
   query('page').optional().isInt({ min: 1 }).toInt(),
   query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-  query('include_members').optional().isBoolean().toBoolean()
+  query('include_members').optional().isBoolean().toBoolean(),
+  query('view').optional().isIn(['membership'])
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    // Optional: return all groups from group_membership_view (no pagination)
+    if (req.query.view === 'membership') {
+      const result = await pool.query(
+        'SELECT * FROM group_membership_view ORDER BY group_name'
+      );
+      return res.json({
+        success: true,
+        groups: result.rows
+      });
     }
 
     const { page = 1, limit = 20, include_members = false } = req.query;
@@ -121,7 +133,8 @@ router.get('/', authenticateToken, [
 
 // GET /groups/:groupId
 router.get('/:groupId', authenticateToken, [
-  param('groupId').notEmpty().trim()
+  param('groupId').notEmpty().trim(),
+  query('view').optional().isIn(['membership'])
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -130,6 +143,20 @@ router.get('/:groupId', authenticateToken, [
     }
 
     const { groupId } = req.params;
+
+    if (req.query.view === 'membership') {
+      const result = await pool.query(
+        'SELECT * FROM group_membership_view WHERE group_id = $1',
+        [groupId]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Group not found' });
+      }
+      return res.json({
+        success: true,
+        group: result.rows[0]
+      });
+    }
 
     const result = await pool.query(
       `SELECT g.*,
@@ -172,12 +199,19 @@ router.get('/:groupId', authenticateToken, [
   }
 });
 
-// POST /groups/register
-router.post('/register', authenticateToken, [
-  body('group_name').notEmpty().trim().isLength({ min: 2, max: 100 }),
+// POST /groups/register (or POST /groups with same body - create group)
+const createGroupValidators = [
+  body('group_name').optional().trim().isLength({ min: 2, max: 100 }),
+  body('groupName').optional().trim().isLength({ min: 2, max: 100 }),
+  body('group_id').optional().trim(),
+  body('groupId').optional().trim(),
   body('lead_professional_id').optional().trim(),
-  body('max_members').optional().isInt({ min: 1, max: 50 })
-], async (req, res) => {
+  body('leadProfessionalId').optional().trim(),
+  body('max_members').optional().isInt({ min: 1, max: 50 }),
+  body('maxMembers').optional().isInt({ min: 1, max: 50 })
+];
+
+const createGroupHandler = async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -186,8 +220,16 @@ router.post('/register', authenticateToken, [
       return res.status(400).json({ success: false, errors: errors.array() });
     }
 
-    const { group_name, lead_professional_id, max_members } = req.body;
-    const leadId = lead_professional_id || req.user.professional_id;
+    const { group_name: gn, groupName, group_id: body_group_id, groupId: body_groupId, lead_professional_id, leadProfessionalId, max_members, maxMembers } = req.body;
+    const group_name = gn || groupName;
+    if (!group_name || group_name.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Group name is required (min 2 characters)'
+      });
+    }
+    const leadId = lead_professional_id || leadProfessionalId || req.user.professional_id;
+    const maxMembersVal = max_members ?? maxMembers;
 
     // Only commanders can create groups with different leads
     if (leadId !== req.user.professional_id && req.user.role !== 'Commander') {
@@ -236,13 +278,13 @@ router.post('/register', authenticateToken, [
       });
     }
 
-    const group_id = `grp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const group_id = body_group_id || body_groupId || `grp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Create group
     const result = await client.query(
       `INSERT INTO groups (group_id, group_name, lead_professional_id, max_members, created_by, created_at)
        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *`,
-      [group_id, group_name, leadId, max_members || 10, req.user.professional_id]
+      [group_id, group_name, leadId, maxMembersVal ?? 10, req.user.professional_id]
     );
 
     // Add lead as member
@@ -276,15 +318,25 @@ router.post('/register', authenticateToken, [
   } finally {
     client.release();
   }
-});
+};
 
-// PUT /groups/update/:groupId
-router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, [
+router.post('/register', authenticateToken, authorize('Commander', 'Medical Officer'), createGroupValidators, createGroupHandler);
+
+// POST /groups - create group (same as /register, accepts groupName, groupId, etc.)
+router.post('/', authenticateToken, authorize('Commander', 'Medical Officer'), createGroupValidators, createGroupHandler);
+
+const updateGroupValidators = [
   param('groupId').notEmpty().trim(),
   body('group_name').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
+  body('groupName').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
   body('lead_professional_id').optional().trim(),
-  body('max_members').optional().isInt({ min: 1, max: 50 })
-], async (req, res) => {
+  body('leadProfessionalId').optional().trim(),
+  body('max_members').optional().isInt({ min: 1, max: 50 }),
+  body('maxMembers').optional().isInt({ min: 1, max: 50 })
+];
+
+// PUT /groups/update/:groupId
+router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, updateGroupValidators, async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -294,7 +346,10 @@ router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, [
     }
 
     const { groupId } = req.params;
-    const { group_name, lead_professional_id, max_members } = req.body;
+    const { group_name: gn, groupName, lead_professional_id: lpid, leadProfessionalId, max_members: mm, maxMembers } = req.body;
+    const group_name = gn || groupName;
+    const lead_professional_id = lpid || leadProfessionalId;
+    const max_members = mm ?? maxMembers;
 
     await client.query('BEGIN');
 
@@ -434,6 +489,132 @@ router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, [
       message: 'Group update failed',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  } finally {
+    client.release();
+  }
+});
+
+// PUT /groups/:groupId - REST-style update (same as /update/:groupId)
+router.put('/:groupId', authenticateToken, requireCommanderOrLead, updateGroupValidators, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+    const { groupId } = req.params;
+    const { group_name: gn, groupName, lead_professional_id: lpid, leadProfessionalId, max_members: mm, maxMembers } = req.body;
+    const group_name = gn || groupName;
+    const lead_professional_id = lpid || leadProfessionalId;
+    const max_members = mm ?? maxMembers;
+
+    await client.query('BEGIN');
+
+    const groupCheck = await client.query(
+      `SELECT g.*, COUNT(p.professional_id) as current_member_count
+       FROM groups g
+       LEFT JOIN professionals p ON p.group_id = g.group_id
+       WHERE g.group_id = $1
+       GROUP BY g.group_id`,
+      [groupId]
+    );
+
+    if (groupCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const group = groupCheck.rows[0];
+    const currentMemberCount = parseInt(group.current_member_count);
+
+    if (lead_professional_id && lead_professional_id !== group.lead_professional_id) {
+      const newLeadCheck = await client.query(
+        'SELECT professional_id, name, group_id FROM professionals WHERE professional_id = $1',
+        [lead_professional_id]
+      );
+      if (newLeadCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ success: false, message: 'New lead professional not found' });
+      }
+      if (newLeadCheck.rows[0].group_id && newLeadCheck.rows[0].group_id !== groupId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ success: false, message: 'New lead is a member of a different group' });
+      }
+      if (!newLeadCheck.rows[0].group_id) {
+        await client.query('UPDATE professionals SET group_id = $1 WHERE professional_id = $2', [groupId, lead_professional_id]);
+      }
+    }
+
+    if (max_members !== undefined && max_members < currentMemberCount) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: `Cannot reduce max_members to ${max_members}. Group currently has ${currentMemberCount} members.` });
+    }
+
+    if (group_name && group_name.toLowerCase() !== group.group_name.toLowerCase()) {
+      const duplicateCheck = await client.query(
+        'SELECT group_id FROM groups WHERE LOWER(group_name) = LOWER($1) AND group_id != $2',
+        [group_name, groupId]
+      );
+      if (duplicateCheck.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ success: false, message: 'A group with this name already exists' });
+      }
+    }
+
+    const updates = [];
+    const values = [];
+    const changes = {};
+    let paramCount = 1;
+
+    if (group_name && group_name !== group.group_name) {
+      updates.push(`group_name = $${paramCount++}`);
+      values.push(group_name);
+      changes.group_name = { from: group.group_name, to: group_name };
+    }
+    if (lead_professional_id && lead_professional_id !== group.lead_professional_id) {
+      updates.push(`lead_professional_id = $${paramCount++}`);
+      values.push(lead_professional_id);
+      changes.lead_professional_id = { from: group.lead_professional_id, to: lead_professional_id };
+    }
+    if (max_members !== undefined && max_members !== group.max_members) {
+      updates.push(`max_members = $${paramCount++}`);
+      values.push(max_members);
+      changes.max_members = { from: group.max_members, to: max_members };
+    }
+
+    if (updates.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'No changes detected' });
+    }
+
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    updates.push(`updated_by = $${paramCount++}`);
+    values.push(req.user.professional_id);
+    values.push(groupId);
+
+    const result = await client.query(
+      `UPDATE groups SET ${updates.join(', ')} WHERE group_id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    await client.query(
+      `INSERT INTO group_audit_log (group_id, action, performed_by, details, created_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+      [groupId, 'updated', req.user.professional_id, JSON.stringify(changes)]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Group updated successfully',
+      group: result.rows[0],
+      changes: Object.keys(changes)
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Group update error:', error.message);
+    res.status(500).json({ success: false, message: 'Group update failed', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
   } finally {
     client.release();
   }
@@ -714,6 +895,88 @@ router.delete('/delete/:groupId', authenticateToken, [
     console.error('Group delete error:', error.message);
     res.status(500).json({ 
       success: false, 
+      message: 'Group deletion failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /groups/:groupId - REST-style delete (Commander only, same as /delete/:groupId)
+router.delete('/:groupId', authenticateToken, [
+  param('groupId').notEmpty().trim(),
+  query('force').optional().isBoolean().toBoolean()
+], async (req, res) => {
+  if (req.user.role !== 'Commander') {
+    return res.status(403).json({ success: false, message: 'Only commanders can delete groups' });
+  }
+  const client = await pool.connect();
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+    const { groupId } = req.params;
+    const force = req.query.force === 'true';
+
+    await client.query('BEGIN');
+
+    const groupCheck = await client.query(
+      `SELECT g.*, COUNT(p.professional_id) as member_count
+       FROM groups g
+       LEFT JOIN professionals p ON p.group_id = g.group_id
+       WHERE g.group_id = $1
+       GROUP BY g.group_id`,
+      [groupId]
+    );
+
+    if (groupCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const group = groupCheck.rows[0];
+    const memberCount = parseInt(group.member_count);
+
+    if (memberCount > 0 && !force) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: `Group has ${memberCount} member(s). Use ?force=true to delete anyway.`,
+        details: { members: memberCount }
+      });
+    }
+
+    if (memberCount > 0) {
+      await client.query('UPDATE professionals SET group_id = NULL WHERE group_id = $1', [groupId]);
+    }
+
+    await client.query('DELETE FROM groups WHERE group_id = $1', [groupId]);
+
+    await client.query(
+      `INSERT INTO group_audit_log (group_id, action, performed_by, details, created_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+      [groupId, 'deleted', req.user.professional_id, JSON.stringify({
+        group_name: group.group_name,
+        force,
+        members_removed: memberCount
+      })]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Group deleted successfully',
+      group: group,
+      members_removed: memberCount
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Group delete error:', error.message);
+    res.status(500).json({
+      success: false,
       message: 'Group deletion failed',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });

@@ -327,6 +327,53 @@ export const casualtyAPI = {
   },
 };
 
+// drill endpoints
+
+export const drillAPI = {
+  // GET /drills/active
+  getActiveDrill: async () => {
+    return await apiRequest('/drills/active');
+  },
+
+  // POST /drills - Create or update draft
+  saveDrill: async (data) => {
+    return await apiRequest('/drills', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // POST /drills/start
+  startDrill: async (data) => {
+    return await apiRequest('/drills/start', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // POST /drills/stop
+  stopDrill: async () => {
+    return await apiRequest('/drills/stop', {
+      method: 'POST',
+    });
+  },
+
+  // PUT /drills/:id
+  updateDrill: async (id, data) => {
+    return await apiRequest(`/drills/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // DELETE /drills/:id
+  deactivateDrill: async (id) => {
+    return await apiRequest(`/drills/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 // task endpoints
 
 export const taskAPI = {

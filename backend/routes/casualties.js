@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
 const pool = require('../config/database');
-const { authenticateToken } = require('../config/auth');
+const { authenticateToken, authorize } = require('../config/auth');
 
 const router = express.Router();
 

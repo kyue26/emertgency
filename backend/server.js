@@ -10,6 +10,7 @@ const taskRoutes = require('./routes/tasks');
 const analyticsRoutes = require('./routes/analytics');
 const resourceRoutes = require('./routes/resources');
 const shiftRoutes = require('./routes/shifts');
+const drillRoutes = require('./routes/drills');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,6 +27,7 @@ app.use('/casualties', casualtyRoutes);
 app.use('/tasks', taskRoutes);
 app.use('/resources', resourceRoutes);
 app.use('/shifts', shiftRoutes);
+app.use('/drills', drillRoutes);
 app.use('/', analyticsRoutes);
 
 app.use((err, req, res, next) => {
