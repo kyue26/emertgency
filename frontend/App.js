@@ -1,5 +1,6 @@
-import React, { useState, createContext } from 'react';
-import  { View, Text, TouchableOpacity} from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Feather } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -9,11 +10,13 @@ import ProfileScreen from './screens/ProfileScreen';
 import MembersScreen from './screens/MembersScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import LandingScreen from "./screens/LandingScreen.js";
-// import CommanderTodoScreen from "./screens/CommanderTodoScreen";
 import TaskScreen from './screens/TaskScreen';
 import AddPersonScreen from './screens/AddPersonScreen.js';
 import CasualtyListScreen from './screens/CasualtyListScreen.js';
 import CasualtyDetailScreen from './screens/CasualtyDetailScreen';
+import CommanderNavigator from './navigation/CommanderNavigator';
+import { getStoredToken } from './services/api';
+import { getCommanderToken } from './services/commanderApi';
 import { applyGlobalFont } from "./styles/FontPatch";
 import {
   useFonts,
@@ -24,9 +27,7 @@ import {
   Poppins_700Bold,
 } from "@expo-google-fonts/poppins";
 import GuideScreen from './screens/GuideScreen';
-
-// creating auth context to handle auth state
-export const AuthContext = createContext();
+import { AuthContext } from './context/AuthContext';
 
 const Tab = createBottomTabNavigator();
 const AuthStack = createNativeStackNavigator();
@@ -311,6 +312,7 @@ function MainTabNavigator() {
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userRole, setUserRole] = useState(null); // 'member' | 'commander'
   const [isLoading, setIsLoading] = useState(true);
   const [fontsLoaded] = useFonts({
     Poppins_300Light,
@@ -320,20 +322,28 @@ export default function App() {
     Poppins_700Bold,
   });
 
-  // check for stored authentication on mount
+  // Check for stored auth on mount: member token -> member flow, commander token -> commander flow
   React.useEffect(() => {
     const checkAuth = async () => {
       try {
-        const { getStoredToken } = require('./services/api');
-        const token = await getStoredToken();
-        if (token) {
+        const [memberToken, commanderToken] = await Promise.all([
+          getStoredToken(),
+          getCommanderToken(),
+        ]);
+        if (memberToken) {
           setIsAuthenticated(true);
+          setUserRole('member');
+        } else if (commanderToken) {
+          setIsAuthenticated(true);
+          setUserRole('commander');
         } else {
           setIsAuthenticated(false);
+          setUserRole(null);
         }
       } catch (error) {
         console.error('Error checking auth:', error);
         setIsAuthenticated(false);
+        setUserRole(null);
       } finally {
         setIsLoading(false);
       }
@@ -341,14 +351,26 @@ export default function App() {
     checkAuth();
   }, []);
 
-  // handle logging out
+  const handleAuthSuccess = (role) => {
+    setIsAuthenticated(true);
+    setUserRole(role || 'member');
+  };
+
   const handleLogout = async () => {
     try {
-      const { authAPI } = require('./services/api');
-      await authAPI.logout();
+      if (userRole === 'commander') {
+        const commanderApi = require('./services/commanderApi').default;
+        await commanderApi.logout();
+      } else {
+        const { authAPI } = require('./services/api');
+        await authAPI.logout();
+      }
       setIsAuthenticated(false);
+      setUserRole(null);
     } catch (error) {
       console.error('Logout error:', error);
+      setIsAuthenticated(false);
+      setUserRole(null);
     }
   };
 
@@ -357,21 +379,26 @@ export default function App() {
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, setIsAuthenticated, handleLogout }}>
-      <NavigationContainer>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AuthContext.Provider value={{ isAuthenticated, userRole, setUserRole, handleLogout }}>
+        <NavigationContainer>
         <AuthStack.Navigator screenOptions={{ headerShown: false }}>
           {!isAuthenticated ? (
             <AuthStack.Screen name="Landing">
               {(props) => (
-                <LandingScreen {...props} onAuthSuccess={() => setIsAuthenticated(true)} />
+                <LandingScreen {...props} onAuthSuccess={handleAuthSuccess} />
               )}
             </AuthStack.Screen>
+          ) : userRole === 'commander' ? (
+            <AuthStack.Screen name="CommanderApp">
+              {(props) => <CommanderNavigator {...props} onLogout={handleLogout} />}
+            </AuthStack.Screen>
           ) : (
-      
             <AuthStack.Screen name="MainApp" component={MainTabNavigator} />
           )}
         </AuthStack.Navigator>
-      </NavigationContainer>
-    </AuthContext.Provider>
+        </NavigationContainer>
+      </AuthContext.Provider>
+    </GestureHandlerRootView>
   );
 }

@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIn
 import { FontAwesome5, MaterialIcons, Feather } from '@expo/vector-icons'; // Assuming you use expo vector icons or similar
 import styles from "../styles/ProfileScreenStyles";
 import { getStoredUser, authAPI, taskAPI, eventAPI, shiftAPI } from "../services/api";
-import { AuthContext } from "../App";
+import { AuthContext } from "../context/AuthContext";
 
 const ProfileScreen = ({ navigation }) => {
   const { handleLogout } = useContext(AuthContext);

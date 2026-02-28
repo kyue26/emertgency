@@ -1,8 +1,8 @@
-// API Service for connecting frontend to backend
-// Base URL: https://emertgency.mayahuizar.com
-
-// const API_BASE_URL = 'https://emertgency.mayahuizar.com';
-const API_BASE_URL ='http://100.69.38.177:3000';
+// API Service for connecting frontend to backend (member flow).
+// Set EXPO_PUBLIC_API_URL in .env: simulator → http://localhost:3000  device → http://YOUR_IP:3000
+const API_BASE_URL =
+  (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) ||
+  'http://localhost:3000';
 
 // token storage key
 const TOKEN_KEY = '@emertgency:auth_token';
