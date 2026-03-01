@@ -449,8 +449,8 @@ router.put('/update/:casualtyId/status', authenticateToken, idempotencyMiddlewar
   }
 });
 
-// GET /casualties/:casualtyId/history - Audit log with professional names
-router.get('/:casualtyId/history', authenticateToken, [
+// GET /casualties/:casualtyId/audit - Audit log with professional names
+router.get('/:casualtyId/audit', authenticateToken, [
   param('casualtyId').notEmpty().trim()
 ], async (req, res) => {
   try {
@@ -476,13 +476,13 @@ router.get('/:casualtyId/history', authenticateToken, [
 
     res.json({
       success: true,
-      history: result.rows
+      audit: result.rows
     });
   } catch (error) {
-    console.error('Get casualty history error:', error.message);
+    console.error('Get casualty audit error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve history'
+      message: 'Failed to retrieve audit'
     });
   }
 });

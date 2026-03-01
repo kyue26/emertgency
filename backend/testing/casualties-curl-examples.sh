@@ -359,11 +359,11 @@ curl -s -X PUT "$BASE_URL/$CAS_ID" \
   -d "{\"color\": \"yellow\"}" | jq .
 
 # =============================================================================
-# 10. GET /casualties/:casualtyId/history
+# 10. GET /casualties/:casualtyId/audit
 # =============================================================================
 echo ""
-echo "=== 10. GET /casualties/$CAS_ID/history ==="
-curl -s -X GET "$BASE_URL/$CAS_ID/history" -H "Authorization: Bearer $TOKEN" | jq .
+echo "=== 10. GET /casualties/$CAS_ID/audit ==="
+curl -s -X GET "$BASE_URL/$CAS_ID/audit" -H "Authorization: Bearer $TOKEN" | jq .
 
 # =============================================================================
 # FAIL: DELETE - Member cannot delete Commander's casualty (expect 403)

@@ -373,9 +373,9 @@ export const casualtyAPI = {
     });
   },
 
-  // GET /casualties/:casualtyId/history - Audit log with professional names
-  getCasualtyHistory: async (casualtyId) => {
-    return await apiRequest(`/casualties/${casualtyId}/history`);
+  // GET /casualties/:casualtyId/audit - Audit log with professional names
+  getCasualtyAudit: async (casualtyId) => {
+    return await apiRequest(`/casualties/${casualtyId}/audit`);
   },
 };
 
