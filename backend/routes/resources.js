@@ -165,6 +165,42 @@ router.get('/', authenticateToken, [
   }
 });
 
+// GET /resources/event/:eventId - Get resource requests for a specific event (must be before /:resourceRequestId)
+router.get('/event/:eventId', authenticateToken, [
+  param('eventId').notEmpty().trim()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { eventId } = req.params;
+
+    const result = await pool.query(
+      `SELECT rr.*,
+              p_req.name as requested_by_name
+       FROM resource_requests rr
+       LEFT JOIN professionals p_req ON rr.requested_by = p_req.professional_id
+       WHERE rr.event_id = $1
+       ORDER BY rr.created_at DESC`,
+      [eventId]
+    );
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Get resource requests for event error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch resource requests for event',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // GET /resources/:resourceRequestId - Get single resource request
 router.get('/:resourceRequestId', authenticateToken, [
   param('resourceRequestId').notEmpty().trim()

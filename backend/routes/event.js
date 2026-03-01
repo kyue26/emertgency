@@ -227,6 +227,44 @@ router.post('/leave', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /events/:eventId/statistics - MUST be before /:eventId to avoid route conflict
+router.get('/:eventId/statistics', authenticateToken, [
+  param('eventId').notEmpty().trim()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { eventId } = req.params;
+
+    const result = await pool.query(
+      'SELECT * FROM casualty_statistics_view WHERE event_id = $1',
+      [eventId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      statistics: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Get event statistics error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve event statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // GET /events/:eventId
 router.get('/:eventId', authenticateToken, [
   param('eventId').notEmpty().trim()

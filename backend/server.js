@@ -10,6 +10,10 @@ const analyticsRoutes = require('./routes/analytics');
 const resourceRoutes = require('./routes/resources');
 const shiftRoutes = require('./routes/shifts');
 const syncRoutes = require('./routes/sync');
+const campRoutes = require('./routes/camps');
+const drillRoutes = require('./routes/drills');
+const hospitalRoutes = require('./routes/hospitals');
+const professionalRoutes = require('./routes/professionals');
 const pool = require('./config/database');
 
 const app = express();
@@ -22,11 +26,16 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/auth', authRoutes);
 app.use('/groups', groupRoutes);
 app.use('/event', eventRoutes);
+app.use('/events', eventRoutes);
 app.use('/casualties', casualtyRoutes);
 app.use('/tasks', taskRoutes);
 app.use('/resources', resourceRoutes);
 app.use('/shifts', shiftRoutes);
 app.use('/sync', syncRoutes);
+app.use('/camps', campRoutes);
+app.use('/drills', drillRoutes);
+app.use('/hospitals', hospitalRoutes);
+app.use('/professionals', professionalRoutes);
 app.use('/', analyticsRoutes);
 
 app.use((err, req, res, next) => {

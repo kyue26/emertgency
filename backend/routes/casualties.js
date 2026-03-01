@@ -194,10 +194,13 @@ router.put('/update/:casualtyId/status', authenticateToken, idempotencyMiddlewar
   body('other_information').optional().trim().isLength({ max: 1000 }),
   body('camp_id').optional().trim()
 ], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ success: false, errors: errors.array() });
-  }
+  const client = await pool.connect();
+
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
 
     const { casualtyId } = req.params;
     const {
@@ -370,6 +373,103 @@ router.put('/update/:casualtyId/status', authenticateToken, idempotencyMiddlewar
     });
   } finally {
     client.release();
+  }
+});
+
+// GET /casualties/statistics - by priority color (must be before /:casualtyId routes)
+router.get('/statistics', authenticateToken, async (req, res) => {
+  try {
+    const eventId = req.query.event_id;
+
+    let sqlQuery = `
+      SELECT
+        color,
+        COUNT(*) FILTER (WHERE hospital_status IS NULL OR hospital_status = '') as in_treatment,
+        COUNT(*) FILTER (WHERE hospital_status IS NOT NULL AND hospital_status != '') as transported,
+        COUNT(*) as total
+      FROM injured_persons
+    `;
+    const params = [];
+
+    if (eventId) {
+      sqlQuery += ' WHERE event_id = $1';
+      params.push(eventId);
+    }
+
+    sqlQuery += `
+      GROUP BY color
+      ORDER BY
+        CASE color
+          WHEN 'red' THEN 1
+          WHEN 'yellow' THEN 2
+          WHEN 'green' THEN 3
+          WHEN 'black' THEN 4
+        END
+    `;
+
+    const result = await pool.query(sqlQuery, params);
+
+    const statistics = {
+      red: { color: 'red', in_treatment: 0, transported: 0, total: 0 },
+      yellow: { color: 'yellow', in_treatment: 0, transported: 0, total: 0 },
+      green: { color: 'green', in_treatment: 0, transported: 0, total: 0 },
+      black: { color: 'black', in_treatment: 0, transported: 0, total: 0 }
+    };
+
+    result.rows.forEach(row => {
+      statistics[row.color] = {
+        color: row.color,
+        in_treatment: parseInt(row.in_treatment, 10),
+        transported: parseInt(row.transported, 10),
+        total: parseInt(row.total, 10)
+      };
+    });
+
+    res.json({
+      success: true,
+      data: statistics
+    });
+  } catch (error) {
+    console.error('Casualty statistics error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch casualty statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// GET /casualties/:casualtyId/audit - Alias for /history
+router.get('/:casualtyId/audit', authenticateToken, [
+  param('casualtyId').notEmpty().trim()
+], async (req, res) => {
+  try {
+    const { casualtyId } = req.params;
+
+    const casualtyCheck = await pool.query(
+      'SELECT ip.event_id FROM injured_persons ip WHERE ip.injured_person_id = $1',
+      [casualtyId]
+    );
+
+    if (casualtyCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Casualty not found' });
+    }
+
+    const history = await pool.query(
+      `SELECT * FROM casualty_audit_log WHERE casualty_id = $1 ORDER BY changed_at DESC`,
+      [casualtyId]
+    );
+
+    res.json({
+      success: true,
+      audit: history.rows
+    });
+  } catch (error) {
+    console.error('Get casualty audit error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve audit history'
+    });
   }
 });
 
