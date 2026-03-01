@@ -74,7 +74,7 @@ router.post('/register', [
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
     .withMessage('Password must contain uppercase, lowercase, number, and special character'),
   body('phone_number').optional().isMobilePhone(),
-  body('role').optional().isIn(['MERT Member', 'Commander', 'Medical Officer'])
+  body('role').optional().isIn(['MERT Member', 'Commander', 'Medical Officer', 'Staging Officer', 'Triage Officer', 'Treatment Officer', 'Transport Officer'])
 ], async (req, res) => {
   const client = await pool.connect();
   
@@ -395,39 +395,6 @@ router.put('/update', authenticateToken, [
   } catch (error) {
     console.error('Update error:', error.message);
     res.status(500).json({ success: false, message: 'Update failed' });
-  }
-});
-
-// GET /auth/professionals
-router.get('/professionals', authenticateToken, async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT 
-        professional_id,
-        name,
-        email,
-        phone_number,
-        role,
-        current_event_id,
-        current_camp_id,
-        group_id,
-        created_at,
-        updated_at
-       FROM professionals
-       ORDER BY name ASC`
-    );
-
-    res.json({
-      success: true,
-      professionals: result.rows
-    });
-  } catch (error) {
-    console.error('Get professionals error:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to retrieve professionals',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
   }
 });
 
