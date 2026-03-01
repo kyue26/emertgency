@@ -5,7 +5,7 @@
 
 set +e
 AUTH_URL="http://localhost:3000/auth"
-EVENTS_URL="http://localhost:3000/events"
+EVENTS_URL="http://localhost:3000/event"
 BASE_URL="http://localhost:3000/camps"
 FAKE_EVENT_ID="evt_nonexistent_12345"
 FAKE_CAMP_ID="cmp_nonexistent_12345"

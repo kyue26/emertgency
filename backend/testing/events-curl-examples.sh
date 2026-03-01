@@ -5,7 +5,7 @@
 
 set +e   # Don't exit on curl failures so we can see all results
 AUTH_URL="http://localhost:3000/auth"
-BASE_URL="http://localhost:3000/events"
+BASE_URL="http://localhost:3000/event"
 
 # Test user - must use @pennmert.org or @publicsafety.upenn.edu
 TEST_EMAIL="commander.test@pennmert.org"

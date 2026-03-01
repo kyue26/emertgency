@@ -190,87 +190,87 @@ export const professionalAPI = {
 // event endpoints
 
 export const eventAPI = {
-  // GET /events
+  // GET /event
   getEvents: async (params = {}) => {
     const queryString = new URLSearchParams(params).toString();
-    const endpoint = queryString ? `/events?${queryString}` : '/events';
+    const endpoint = queryString ? `/event?${queryString}` : '/event';
     return await apiRequest(endpoint);
   },
 
-  // GET /events/:eventId
+  // GET /event/:eventId
   getEvent: async (eventId) => {
-    return await apiRequest(`/events/${eventId}`);
+    return await apiRequest(`/event/${eventId}`);
   },
 
-  // GET /events/:eventId/statistics
+  // GET /event/:eventId/statistics
   getEventStatistics: async (eventId) => {
-    return await apiRequest(`/events/${eventId}/statistics`);
+    return await apiRequest(`/event/${eventId}/statistics`);
   },
 
-  // POST /events/create
+  // POST /event/create
   createEvent: async (eventData) => {
-    return await apiRequest('/events/create', {
+    return await apiRequest('/event/create', {
       method: 'POST',
       body: JSON.stringify(eventData),
     });
   },
 
-  // PUT /events/update/:eventId
+  // PUT /event/update/:eventId
   updateEvent: async (eventId, updates) => {
-    return await apiRequest(`/events/update/${eventId}`, {
+    return await apiRequest(`/event/update/${eventId}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
     });
   },
 
-  // DELETE /events/delete/:eventId
+  // DELETE /event/delete/:eventId
   deleteEvent: async (eventId, force = false) => {
     const queryString = force ? '?force=true' : '';
-    return await apiRequest(`/events/delete/${eventId}${queryString}`, {
+    return await apiRequest(`/event/delete/${eventId}${queryString}`, {
       method: 'DELETE',
     });
   },
 
-  // GET /events/:eventId/invite-code
+  // GET /event/:eventId/invite-code
   getInviteCode: async (eventId) => {
-    return await apiRequest(`/events/${eventId}/invite-code`);
+    return await apiRequest(`/event/${eventId}/invite-code`);
   },
 
-  // POST /events/join
+  // POST /event/join
   joinEvent: async (inviteCode, campId) => {
     const body = { invite_code: inviteCode };
     if (campId) {
       body.camp_id = campId;
     }
-    return await apiRequest('/events/join', {
+    return await apiRequest('/event/join', {
       method: 'POST',
       body: JSON.stringify(body),
     });
   },
 
-  // GET /events/current
+  // GET /event/current
   getCurrentEvent: async () => {
-    return await apiRequest('/events/current');
+    return await apiRequest('/event/current');
   },
 
-  // GET /events/active - returns active event (404 if none; same concept as drills /active)
+  // GET /event/active - returns active event (404 if none; same concept as drills /active)
   getActiveEvent: async () => {
-    return await apiRequest('/events/active');
+    return await apiRequest('/event/active');
   },
 
-  // POST /events/start - Commander only; transitions current event to in_progress
+  // POST /event/start - Commander only; transitions current event to in_progress
   startEvent: async () => {
-    return await apiRequest('/events/start', { method: 'POST' });
+    return await apiRequest('/event/start', { method: 'POST' });
   },
 
-  // POST /events/stop - Commander only; transitions current event to finished
+  // POST /event/stop - Commander only; transitions current event to finished
   stopEvent: async () => {
-    return await apiRequest('/events/stop', { method: 'POST' });
+    return await apiRequest('/event/stop', { method: 'POST' });
   },
 
-  // POST /events/leave
+  // POST /event/leave
   leaveEvent: async () => {
-    return await apiRequest('/events/leave', {
+    return await apiRequest('/event/leave', {
       method: 'POST',
     });
   },
@@ -391,39 +391,39 @@ export const casualtyAPI = {
 // Note: Events require Commander role for create/update/delete/start/stop; drills did not.
 
 // export const drillAPI = {
-//   // GET /events/active - returns { event } (drill clients: use response.event, not response.drill)
+//   // GET /event/active - returns { event } (drill clients: use response.event, not response.drill)
 //   getActiveDrill: async () => {
-//     return await apiRequest('/events/active');
+//     return await apiRequest('/event/active');
 //   },
 
-//   // POST /events/create - Commander only. Drills allowed any user to save drafts.
+//   // POST /event/create - Commander only. Drills allowed any user to save drafts.
 //   saveDrill: async (data) => {
 //     const eventData = {
 //       name: data.drillName ?? data.name,
 //       location: data.location ?? null,
 //       start_time: data.date ?? data.drill_date ?? data.start_time,
 //     };
-//     return await apiRequest('/events/create', {
+//     return await apiRequest('/event/create', {
 //       method: 'POST',
 //       body: JSON.stringify(eventData),
 //     });
 //   },
 
-//   // POST /events/start - Commander only. Drills allowed any user.
+//   // POST /event/start - Commander only. Drills allowed any user.
 //   startDrill: async () => {
-//     return await apiRequest('/events/start', {
+//     return await apiRequest('/event/start', {
 //       method: 'POST',
 //     });
 //   },
 
-//   // POST /events/stop - Commander only. Drills allowed any user.
+//   // POST /event/stop - Commander only. Drills allowed any user.
 //   stopDrill: async () => {
-//     return await apiRequest('/events/stop', {
+//     return await apiRequest('/event/stop', {
 //       method: 'POST',
 //     });
 //   },
 
-//   // PUT /events/update/:eventId - Commander only.
+//   // PUT /event/update/:eventId - Commander only.
 //   updateDrill: async (id, data) => {
 //     const updates = {};
 //     if (data.drillName !== undefined || data.name !== undefined) {
@@ -433,15 +433,15 @@ export const casualtyAPI = {
 //     if (data.date !== undefined || data.drill_date !== undefined || data.start_time !== undefined) {
 //       updates.start_time = data.date ?? data.drill_date ?? data.start_time;
 //     }
-//     return await apiRequest(`/events/update/${id}`, {
+//     return await apiRequest(`/event/update/${id}`, {
 //       method: 'PUT',
 //       body: JSON.stringify(updates),
 //     });
 //   },
 
-//   // DELETE /events/delete/:eventId - Commander only.
+//   // DELETE /event/delete/:eventId - Commander only.
 //   deactivateDrill: async (id) => {
-//     return await apiRequest(`/events/delete/${id}`, {
+//     return await apiRequest(`/event/delete/${id}`, {
 //       method: 'DELETE',
 //     });
 //   },

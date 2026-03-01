@@ -25,17 +25,14 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use('/auth', authRoutes);
 app.use('/groups', groupRoutes);
-app.use('/events', eventRoutes);
 app.use('/camps', campRoutes);
 app.use('/event', eventRoutes);
-app.use('/events', eventRoutes);
 app.use('/casualties', casualtyRoutes);
 app.use('/tasks', taskRoutes);
 app.use('/resources', resourceRoutes);
 app.use('/shifts', shiftRoutes);
 app.use('/sync', syncRoutes);
 app.use('/camps', campRoutes);
-//app.use('/drills', drillRoutes);
 app.use('/hospitals', hospitalRoutes);
 app.use('/professionals', professionalRoutes);
 app.use('/', analyticsRoutes);
