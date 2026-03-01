@@ -157,16 +157,9 @@ export const authAPI = {
   logout: async () => {
     await removeToken();
   },
-
-  // GET /auth/professionals
-  getProfessionals: async (params = {}) => {
-    const queryString = new URLSearchParams(params).toString();
-    const endpoint = queryString ? `/auth/professionals?${queryString}` : '/auth/professionals';
-    return await apiRequest(endpoint);
-  },
 };
 
-// professional endpoints (REST-style; list also available via authAPI.getProfessionals)
+// professional endpoints (REST-style)
 export const professionalAPI = {
   // GET /professionals
   getProfessionals: async (params = {}) => {

@@ -12,7 +12,7 @@ import {
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import styles from "../styles/MembersScreenStyles";
-import { authAPI, eventAPI } from "../services/api";
+import { professionalAPI, eventAPI } from "../services/api";
 
 const getAvailabilityStatus = (member) => {
   if (member.current_event_id) {
@@ -169,7 +169,7 @@ const MembersScreen = () => {
       console.log('Current event ID:', eventId);
 
       // Get all professionals who are in this event
-      const response = await authAPI.getProfessionals();
+      const response = await professionalAPI.getProfessionals();
       console.log('Professionals API response:', response);
       
       if (response.success && response.professionals) {

@@ -5,7 +5,7 @@ import { Feather, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import styles from '../styles/TaskScreenStyles'; // Styles for main screen and task cards
 import modalStyles from '../styles/CreateTaskModalStyles'; // Styles for the modal form
-import { taskAPI, eventAPI, groupAPI, authAPI } from '../services/api';
+import { taskAPI, eventAPI, groupAPI, professionalAPI } from '../services/api';
 import { getStoredUser } from '../services/api';
 import { transformTasks, taskToBackendFormat } from '../utils/taskTransform';
 
@@ -219,7 +219,7 @@ const TaskScreen = ({ navigation }) => {
             }
 
             // get all professionals and filter to those in the same event (the "team")
-            const professionalsResponse = await authAPI.getProfessionals();
+            const professionalsResponse = await professionalAPI.getProfessionals();
             let eventMembers = [];
 
             if (professionalsResponse.success && professionalsResponse.professionals) {
