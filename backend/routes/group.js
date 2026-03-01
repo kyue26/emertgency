@@ -204,30 +204,18 @@ router.get('/:groupId', authenticateToken, [
 router.post('/register', authenticateToken, idempotencyMiddleware, [
   body('group_name').notEmpty().trim().isLength({ min: 2, max: 100 }),
   body('lead_professional_id').optional().trim(),
-  body('leadProfessionalId').optional().trim(),
-  body('max_members').optional().isInt({ min: 1, max: 50 }),
-  body('maxMembers').optional().isInt({ min: 1, max: 50 })
-];
-
-const createGroupHandler = async (req, res) => {
+  body('max_members').optional().isInt({ min: 1, max: 50 })
+], async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, errors: errors.array() });
     }
 
-    const { group_name: gn, groupName, group_id: body_group_id, groupId: body_groupId, lead_professional_id, leadProfessionalId, max_members, maxMembers } = req.body;
-    const group_name = gn || groupName;
-    if (!group_name || group_name.length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: 'Group name is required (min 2 characters)'
-      });
-    }
-    const leadId = lead_professional_id || leadProfessionalId || req.user.professional_id;
-    const maxMembersVal = max_members ?? maxMembers;
+    const { group_name, lead_professional_id, max_members } = req.body;
+    const leadId = lead_professional_id || req.user.professional_id;
 
     // Only commanders can create groups with different leads
     if (leadId !== req.user.professional_id && req.user.role !== 'Commander') {
@@ -276,13 +264,13 @@ const createGroupHandler = async (req, res) => {
       });
     }
 
-    const group_id = body_group_id || body_groupId || `grp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const group_id = `grp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Create group
     const result = await client.query(
       `INSERT INTO groups (group_id, group_name, lead_professional_id, max_members, created_by, created_at)
        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING *`,
-      [group_id, group_name, leadId, maxMembersVal ?? 10, req.user.professional_id]
+      [group_id, group_name, leadId, max_members || 10, req.user.professional_id]
     );
 
     // Add lead as member
@@ -316,25 +304,17 @@ const createGroupHandler = async (req, res) => {
   } finally {
     client.release();
   }
-};
-
-router.post('/register', authenticateToken, authorize('Commander', 'Medical Officer'), createGroupValidators, createGroupHandler);
+});
 
 // PUT /groups/update/:groupId
 router.put('/update/:groupId', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, [
   param('groupId').notEmpty().trim(),
   body('group_name').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
-  body('groupName').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
   body('lead_professional_id').optional().trim(),
-  body('leadProfessionalId').optional().trim(),
-  body('max_members').optional().isInt({ min: 1, max: 50 }),
-  body('maxMembers').optional().isInt({ min: 1, max: 50 })
-];
-
-// PUT /groups/update/:groupId
-router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, updateGroupValidators, async (req, res) => {
+  body('max_members').optional().isInt({ min: 1, max: 50 })
+], async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -342,10 +322,7 @@ router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, update
     }
 
     const { groupId } = req.params;
-    const { group_name: gn, groupName, lead_professional_id: lpid, leadProfessionalId, max_members: mm, maxMembers } = req.body;
-    const group_name = gn || groupName;
-    const lead_professional_id = lpid || leadProfessionalId;
-    const max_members = mm ?? maxMembers;
+    const { group_name, lead_professional_id, max_members } = req.body;
 
     await client.query('BEGIN');
 
