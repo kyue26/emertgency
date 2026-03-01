@@ -10,7 +10,6 @@ const taskRoutes = require('./routes/tasks');
 const analyticsRoutes = require('./routes/analytics');
 const resourceRoutes = require('./routes/resources');
 const shiftRoutes = require('./routes/shifts');
-const drillRoutes = require('./routes/drills');
 const hospitalRoutes = require('./routes/hospitals');
 const professionalRoutes = require('./routes/professionals');
 
@@ -29,7 +28,6 @@ app.use('/casualties', casualtyRoutes);
 app.use('/tasks', taskRoutes);
 app.use('/resources', resourceRoutes);
 app.use('/shifts', shiftRoutes);
-app.use('/drills', drillRoutes);
 app.use('/hospitals', hospitalRoutes);
 app.use('/professionals', professionalRoutes);
 app.use('/', analyticsRoutes);
