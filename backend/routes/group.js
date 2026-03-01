@@ -306,12 +306,15 @@ router.post('/register', authenticateToken, idempotencyMiddleware, [
   }
 });
 
-// PUT /groups/update/:groupId
+// PUT /groups/update/:groupId - Accepts snake_case or camelCase (group_name/groupName, etc.)
 router.put('/update/:groupId', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, [
   param('groupId').notEmpty().trim(),
   body('group_name').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
+  body('groupName').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
   body('lead_professional_id').optional().trim(),
-  body('max_members').optional().isInt({ min: 1, max: 50 })
+  body('leadProfessionalId').optional().trim(),
+  body('max_members').optional().isInt({ min: 1, max: 50 }),
+  body('maxMembers').optional().isInt({ min: 1, max: 50 })
 ], async (req, res) => {
   const client = await pool.connect();
 
@@ -322,7 +325,9 @@ router.put('/update/:groupId', authenticateToken, idempotencyMiddleware, require
     }
 
     const { groupId } = req.params;
-    const { group_name, lead_professional_id, max_members } = req.body;
+    const group_name = req.body.group_name ?? req.body.groupName;
+    const lead_professional_id = req.body.lead_professional_id ?? req.body.leadProfessionalId;
+    const max_members = req.body.max_members ?? req.body.maxMembers;
 
     await client.query('BEGIN');
 
@@ -462,142 +467,6 @@ router.put('/update/:groupId', authenticateToken, idempotencyMiddleware, require
       message: 'Group update failed',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
-  } finally {
-    client.release();
-  }
-});
-
-const updateGroupValidators = [
-  param('groupId').notEmpty().trim(),
-  body('group_name').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
-  body('groupName').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
-  body('lead_professional_id').optional().trim(),
-  body('leadProfessionalId').optional().trim(),
-  body('max_members').optional().isInt({ min: 1, max: 50 }),
-  body('maxMembers').optional().isInt({ min: 1, max: 50 })
-];
-
-// PUT /groups/:groupId - REST-style update (same as /update/:groupId)
-router.put('/:groupId', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, updateGroupValidators, async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-    const { groupId } = req.params;
-    const { group_name: gn, groupName, lead_professional_id: lpid, leadProfessionalId, max_members: mm, maxMembers } = req.body;
-    const group_name = gn || groupName;
-    const lead_professional_id = lpid || leadProfessionalId;
-    const max_members = mm ?? maxMembers;
-
-    await client.query('BEGIN');
-
-    const groupCheck = await client.query(
-      `SELECT g.*, COUNT(p.professional_id) as current_member_count
-       FROM groups g
-       LEFT JOIN professionals p ON p.group_id = g.group_id
-       WHERE g.group_id = $1
-       GROUP BY g.group_id`,
-      [groupId]
-    );
-
-    if (groupCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Group not found' });
-    }
-
-    const group = groupCheck.rows[0];
-    const currentMemberCount = parseInt(group.current_member_count);
-
-    if (lead_professional_id && lead_professional_id !== group.lead_professional_id) {
-      const newLeadCheck = await client.query(
-        'SELECT professional_id, name, group_id FROM professionals WHERE professional_id = $1',
-        [lead_professional_id]
-      );
-      if (newLeadCheck.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ success: false, message: 'New lead professional not found' });
-      }
-      if (newLeadCheck.rows[0].group_id && newLeadCheck.rows[0].group_id !== groupId) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ success: false, message: 'New lead is a member of a different group' });
-      }
-      if (!newLeadCheck.rows[0].group_id) {
-        await client.query('UPDATE professionals SET group_id = $1 WHERE professional_id = $2', [groupId, lead_professional_id]);
-      }
-    }
-
-    if (max_members !== undefined && max_members < currentMemberCount) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, message: `Cannot reduce max_members to ${max_members}. Group currently has ${currentMemberCount} members.` });
-    }
-
-    if (group_name && group_name.toLowerCase() !== group.group_name.toLowerCase()) {
-      const duplicateCheck = await client.query(
-        'SELECT group_id FROM groups WHERE LOWER(group_name) = LOWER($1) AND group_id != $2',
-        [group_name, groupId]
-      );
-      if (duplicateCheck.rows.length > 0) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ success: false, message: 'A group with this name already exists' });
-      }
-    }
-
-    const updates = [];
-    const values = [];
-    const changes = {};
-    let paramCount = 1;
-
-    if (group_name && group_name !== group.group_name) {
-      updates.push(`group_name = $${paramCount++}`);
-      values.push(group_name);
-      changes.group_name = { from: group.group_name, to: group_name };
-    }
-    if (lead_professional_id && lead_professional_id !== group.lead_professional_id) {
-      updates.push(`lead_professional_id = $${paramCount++}`);
-      values.push(lead_professional_id);
-      changes.lead_professional_id = { from: group.lead_professional_id, to: lead_professional_id };
-    }
-    if (max_members !== undefined && max_members !== group.max_members) {
-      updates.push(`max_members = $${paramCount++}`);
-      values.push(max_members);
-      changes.max_members = { from: group.max_members, to: max_members };
-    }
-
-    if (updates.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, message: 'No changes detected' });
-    }
-
-    updates.push('updated_at = CURRENT_TIMESTAMP');
-    updates.push(`updated_by = $${paramCount++}`);
-    values.push(req.user.professional_id);
-    values.push(groupId);
-
-    const result = await client.query(
-      `UPDATE groups SET ${updates.join(', ')} WHERE group_id = $${paramCount} RETURNING *`,
-      values
-    );
-
-    await client.query(
-      `INSERT INTO group_audit_log (group_id, action, performed_by, details, created_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
-      [groupId, 'updated', req.user.professional_id, JSON.stringify(changes)]
-    );
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: 'Group updated successfully',
-      group: result.rows[0],
-      changes: Object.keys(changes)
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Group update error:', error.message);
-    res.status(500).json({ success: false, message: 'Group update failed', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
   } finally {
     client.release();
   }
@@ -852,19 +721,11 @@ router.delete('/delete/:groupId', authenticateToken, idempotencyMiddleware, [
       );
     }
 
+    // Delete audit log first (FK constraint)
+    await client.query('DELETE FROM group_audit_log WHERE group_id = $1', [groupId]);
+
     // Delete group
     await client.query('DELETE FROM groups WHERE group_id = $1', [groupId]);
-
-    // Log deletion
-    await client.query(
-      `INSERT INTO group_audit_log (group_id, action, performed_by, details, created_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
-      [groupId, 'deleted', req.user.professional_id, JSON.stringify({ 
-        group_name: group.group_name,
-        force,
-        members_removed: memberCount 
-      })]
-    );
 
     await client.query('COMMIT');
 
@@ -878,88 +739,6 @@ router.delete('/delete/:groupId', authenticateToken, idempotencyMiddleware, [
     console.error('Group delete error:', error.message);
     res.status(500).json({ 
       success: false, 
-      message: 'Group deletion failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    client.release();
-  }
-});
-
-// DELETE /groups/:groupId - REST-style delete (Commander only, same as /delete/:groupId)
-router.delete('/:groupId', authenticateToken, [
-  param('groupId').notEmpty().trim(),
-  query('force').optional().isBoolean().toBoolean()
-], async (req, res) => {
-  if (req.user.role !== 'Commander') {
-    return res.status(403).json({ success: false, message: 'Only commanders can delete groups' });
-  }
-  const client = await pool.connect();
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-    const { groupId } = req.params;
-    const force = req.query.force === 'true';
-
-    await client.query('BEGIN');
-
-    const groupCheck = await client.query(
-      `SELECT g.*, COUNT(p.professional_id) as member_count
-       FROM groups g
-       LEFT JOIN professionals p ON p.group_id = g.group_id
-       WHERE g.group_id = $1
-       GROUP BY g.group_id`,
-      [groupId]
-    );
-
-    if (groupCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Group not found' });
-    }
-
-    const group = groupCheck.rows[0];
-    const memberCount = parseInt(group.member_count);
-
-    if (memberCount > 0 && !force) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: `Group has ${memberCount} member(s). Use ?force=true to delete anyway.`,
-        details: { members: memberCount }
-      });
-    }
-
-    if (memberCount > 0) {
-      await client.query('UPDATE professionals SET group_id = NULL WHERE group_id = $1', [groupId]);
-    }
-
-    await client.query('DELETE FROM groups WHERE group_id = $1', [groupId]);
-
-    await client.query(
-      `INSERT INTO group_audit_log (group_id, action, performed_by, details, created_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
-      [groupId, 'deleted', req.user.professional_id, JSON.stringify({
-        group_name: group.group_name,
-        force,
-        members_removed: memberCount
-      })]
-    );
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: 'Group deleted successfully',
-      group: group,
-      members_removed: memberCount
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Group delete error:', error.message);
-    res.status(500).json({
-      success: false,
       message: 'Group deletion failed',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
