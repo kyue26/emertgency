@@ -470,9 +470,10 @@ export const taskAPI = {
     });
   },
 
-  // DELETE /tasks/delete/:taskId
-  deleteTask: async (taskId) => {
-    return await apiRequest(`/tasks/delete/${taskId}`, {
+  // DELETE /tasks/:taskId - Soft delete (cancel) by default. Use deleteTask(taskId, true) for permanent.
+  deleteTask: async (taskId, permanent = false) => {
+    const queryString = permanent ? '?permanent=true' : '';
+    return await apiRequest(`/tasks/${taskId}${queryString}`, {
       method: 'DELETE',
     });
   },

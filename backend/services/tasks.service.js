@@ -26,7 +26,7 @@ const createTask = async (body, user, pool) => {
     }
 
     const professionalCheck = await client.query(
-      `SELECT p.professional_id, p.name, p.email, p.current_camp_id, c.event_id
+      `SELECT p.professional_id, p.name, p.email, p.current_event_id, p.current_camp_id, c.event_id as camp_event_id
        FROM professionals p
        LEFT JOIN camps c ON p.current_camp_id = c.camp_id
        WHERE p.professional_id = $1`,
@@ -39,8 +39,11 @@ const createTask = async (body, user, pool) => {
     }
 
     const professional = professionalCheck.rows[0];
+    const inEventViaCamp = professional.camp_event_id === event_id;
+    const inEventViaDirect = professional.current_event_id === event_id;
+    const isInEvent = inEventViaCamp || inEventViaDirect;
 
-    if (professional.event_id !== event_id && user.role !== 'Commander') {
+    if (!isInEvent && user.role !== 'Commander') {
       await client.query('ROLLBACK');
       return { status: 400, body: { success: false, message: `${professional.name} is not currently assigned to this event` } };
     }
