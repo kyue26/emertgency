@@ -9,6 +9,8 @@ const taskRoutes = require('./routes/tasks');
 const analyticsRoutes = require('./routes/analytics');
 const resourceRoutes = require('./routes/resources');
 const shiftRoutes = require('./routes/shifts');
+const syncRoutes = require('./routes/sync');
+const pool = require('./config/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,6 +26,7 @@ app.use('/casualties', casualtyRoutes);
 app.use('/tasks', taskRoutes);
 app.use('/resources', resourceRoutes);
 app.use('/shifts', shiftRoutes);
+app.use('/sync', syncRoutes);
 app.use('/', analyticsRoutes);
 
 app.use((err, req, res, next) => {
@@ -34,6 +37,20 @@ app.use((err, req, res, next) => {
     error: process.env.NODE_ENV === 'development' ? err : {}
   });
 });
+
+// Purge expired idempotency keys hourly
+setInterval(async () => {
+  try {
+    const result = await pool.query(
+      'DELETE FROM idempotency_keys WHERE expires_at < CURRENT_TIMESTAMP'
+    );
+    if (result.rowCount > 0) {
+      console.log(`Cleaned up ${result.rowCount} expired idempotency keys`);
+    }
+  } catch (err) {
+    console.error('Idempotency cleanup error:', err.message);
+  }
+}, 60 * 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

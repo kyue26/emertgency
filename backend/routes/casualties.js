@@ -2,6 +2,8 @@ const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authenticateToken } = require('../config/auth');
+const { createCasualty, updateCasualtyStatus } = require('../services/casualties.service');
+const { idempotencyMiddleware } = require('../config/idempotency');
 
 const router = express.Router();
 
@@ -162,7 +164,7 @@ router.get('/', authenticateToken, [
 });
 
 // POST /casualties/add
-router.post('/add', authenticateToken, checkEventAccess, [
+router.post('/add', authenticateToken, idempotencyMiddleware, checkEventAccess, [
   body('event_id').notEmpty().trim(),
   body('camp_id').optional().trim(),
   body('color').isIn(['green', 'yellow', 'red', 'black']),
@@ -172,123 +174,17 @@ router.post('/add', authenticateToken, checkEventAccess, [
   body('hospital_status').optional().trim().isLength({ max: 255 }),
   body('other_information').optional().trim().isLength({ max: 1000 })
 ], async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-
-    const {
-      event_id,
-      camp_id,
-      color,
-      breathing,
-      conscious,
-      bleeding,
-      hospital_status,
-      other_information
-    } = req.body;
-
-    await client.query('BEGIN');
-
-    // Verify event exists and is active
-    const eventCheck = await client.query(
-      'SELECT event_id, status FROM events WHERE event_id = $1',
-      [event_id]
-    );
-
-    if (eventCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Event not found' });
-    }
-
-    if (eventCheck.rows[0].status === 'finished') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot add casualties to finished events'
-      });
-    }
-
-    // Verify camp exists if provided
-    if (camp_id) {
-      const campCheck = await client.query(
-        'SELECT camp_id, event_id FROM camps WHERE camp_id = $1',
-        [camp_id]
-      );
-
-      if (campCheck.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ success: false, message: 'Camp not found' });
-      }
-
-      if (campCheck.rows[0].event_id !== event_id) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          success: false,
-          message: 'Camp does not belong to specified event'
-        });
-      }
-    }
-
-    const injured_person_id = `inj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const result = await client.query(
-      `INSERT INTO injured_persons
-       (injured_person_id, event_id, camp_id, color, breathing, conscious, bleeding,
-        hospital_status, other_information, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
-       RETURNING *`,
-      [
-        injured_person_id, event_id, camp_id, color,
-        breathing ?? null, conscious ?? null, bleeding ?? null,
-        hospital_status || null, other_information || null,
-        req.user.professional_id
-      ]
-    );
-
-    // Log the creation
-    await logCasualtyChange(
-      client,
-      injured_person_id,
-      req.user.professional_id,
-      { action: 'created', ...req.body },
-      null
-    );
-
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      success: true,
-      message: 'Injured person added successfully',
-      casualty: result.rows[0]
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Add casualty error:', error.message);
-
-    // Handle specific errors
-    if (error.code === '23503') { // Foreign key violation
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid event_id or camp_id'
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Failed to add casualty',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    client.release();
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
   }
+
+  const result = await createCasualty(req.body, req.user, pool);
+  return res.status(result.status).json(result.body);
 });
 
 // PUT /casualties/update/:casualtyId/status
-router.put('/update/:casualtyId/status', authenticateToken, [
+router.put('/update/:casualtyId/status', authenticateToken, idempotencyMiddleware, [
   param('casualtyId').notEmpty().trim(),
   body('color').optional().isIn(['green', 'yellow', 'red', 'black']),
   body('breathing').optional().isBoolean(),
@@ -298,13 +194,10 @@ router.put('/update/:casualtyId/status', authenticateToken, [
   body('other_information').optional().trim().isLength({ max: 1000 }),
   body('camp_id').optional().trim()
 ], async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
 
     const { casualtyId } = req.params;
     const {
@@ -335,14 +228,13 @@ router.put('/update/:casualtyId/status', authenticateToken, [
 
     const casualty = currentState.rows[0];
 
-    // Check access: user must be in event (current_event_id) or in a camp in this event
+    // Check access rights
     if (req.user.role !== 'Commander') {
       const accessCheck = await client.query(
         `SELECT 1 FROM professionals p
-         WHERE p.professional_id = $1
-         AND (p.current_event_id = $2
-              OR EXISTS (SELECT 1 FROM camps c WHERE c.camp_id = p.current_camp_id AND c.event_id = $2))`,
-        [req.user.professional_id, casualty.event_id]
+         JOIN camps c ON p.current_camp_id = c.camp_id
+         WHERE c.event_id = $1 AND p.professional_id = $2`,
+        [casualty.event_id, req.user.professional_id]
       );
 
       if (accessCheck.rows.length === 0) {
@@ -527,7 +419,7 @@ router.get('/:casualtyId/history', authenticateToken, [
 });
 
 // DELETE /casualties/:casualtyId
-router.delete('/:casualtyId', authenticateToken, [
+router.delete('/:casualtyId', authenticateToken, idempotencyMiddleware, [
   param('casualtyId').notEmpty().trim()
 ], async (req, res) => {
   const client = await pool.connect();
@@ -583,6 +475,16 @@ router.delete('/:casualtyId', authenticateToken, [
       req.user.professional_id,
       { action: 'deleted' },
       casualty
+    );
+
+    // Record in deleted_casualties for delta sync tracking.
+    // This must happen before the DELETE so we still have the event_id.
+    // (casualty_audit_log rows cascade-delete with the injured_person row,
+    //  so they cannot be used to detect deletions in GET /sync.)
+    await client.query(
+      `INSERT INTO deleted_casualties (casualty_id, event_id, deleted_by)
+       VALUES ($1, $2, $3)`,
+      [casualtyId, casualty.event_id, req.user.professional_id]
     );
 
     // Delete the casualty

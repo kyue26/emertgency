@@ -2,6 +2,8 @@ const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authenticateToken } = require('../config/auth');
+const { createTask, updateTask } = require('../services/tasks.service');
+const { idempotencyMiddleware } = require('../config/idempotency');
 
 const router = express.Router();
 
@@ -223,7 +225,7 @@ router.get('/:taskId', authenticateToken, checkTaskAccess, [
 });
 
 // POST /tasks/create
-router.post('/create', authenticateToken, [
+router.post('/create', authenticateToken, idempotencyMiddleware, [
   body('event_id').notEmpty().trim(),
   body('assigned_to').notEmpty().trim(),
   body('title').optional().trim().isLength({ max: 200 }),
@@ -232,150 +234,18 @@ router.post('/create', authenticateToken, [
   body('due_date').optional().isISO8601().toDate(),
   body('notes').optional().trim().isLength({ max: 2000 })
 ], async (req, res) => {
-  const client = await pool.connect();
-  
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-
-    const {
-      event_id,
-      assigned_to,
-      title,
-      task_description,
-      priority,
-      due_date,
-      notes
-    } = req.body;
-
-    await client.query('BEGIN');
-
-    // Verify event exists and is active
-    const eventCheck = await client.query(
-      'SELECT event_id, status, name FROM events WHERE event_id = $1',
-      [event_id]
-    );
-
-    if (eventCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Event not found' });
-    }
-
-    if (eventCheck.rows[0].status === 'finished' || eventCheck.rows[0].status === 'cancelled') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Cannot create tasks for finished or cancelled events' 
-      });
-    }
-
-    // Verify assigned professional exists and is in this event (current_event_id or in a camp in event)
-    const professionalCheck = await client.query(
-      `SELECT p.professional_id, p.name, p.email, p.current_event_id, p.current_camp_id, c.event_id as camp_event_id
-       FROM professionals p
-       LEFT JOIN camps c ON p.current_camp_id = c.camp_id
-       WHERE p.professional_id = $1`,
-      [assigned_to]
-    );
-
-    if (professionalCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Assigned professional not found' 
-      });
-    }
-
-    const professional = professionalCheck.rows[0];
-    const professionalInEvent = professional.current_event_id === event_id || professional.camp_event_id === event_id;
-
-    // Reject if professional not in this event (unless Commander)
-    if (!professionalInEvent && req.user.role !== 'Commander') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ 
-        success: false, 
-        message: `${professional.name} is not currently assigned to this event` 
-      });
-    }
-
-    // Validate due date
-    if (due_date) {
-      const dueDateTime = new Date(due_date);
-      if (dueDateTime < new Date()) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Due date cannot be in the past' 
-        });
-      }
-    }
-
-    const task_id = `tsk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const result = await client.query(
-      `INSERT INTO tasks 
-       (task_id, created_by, assigned_to, event_id, title, task_description, priority, 
-        status, due_date, notes, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP) 
-       RETURNING *`,
-      [
-        task_id, 
-        req.user.professional_id, 
-        assigned_to, 
-        event_id, 
-        title || null,
-        task_description,
-        priority || 'medium', 
-        'pending',
-        due_date || null,
-        notes || null
-      ]
-    );
-
-    // Log task creation
-    await client.query(
-      `INSERT INTO task_audit_log (task_id, action, changed_by, details, changed_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
-      [task_id, 'created', req.user.professional_id, JSON.stringify({ 
-        title,
-        task_description, 
-        assigned_to, 
-        priority: priority || 'medium' 
-      })]
-    );
-
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      success: true,
-      message: 'Task created successfully',
-      task: result.rows[0]
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Create task error:', error.message);
-    
-    if (error.code === '23503') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid event_id or assigned_to' 
-      });
-    }
-    
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to create task',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    client.release();
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
   }
+
+  const result = await createTask(req.body, req.user, pool);
+  return res.status(result.status).json(result.body);
 });
 
 // PUT /tasks/update/:taskId
-router.put('/update/:taskId', authenticateToken, checkTaskAccess, [
+// Note: checkTaskAccess is NOT in the chain here; access check is inside updateTask service.
+router.put('/update/:taskId', authenticateToken, idempotencyMiddleware, [
   param('taskId').notEmpty().trim(),
   body('status').optional().isIn(['pending', 'in_progress', 'completed', 'cancelled']),
   body('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
@@ -385,182 +255,17 @@ router.put('/update/:taskId', authenticateToken, checkTaskAccess, [
   body('notes').optional().trim().isLength({ max: 2000 }),
   body('assigned_to').optional().trim()
 ], async (req, res) => {
-  const client = await pool.connect();
-  
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-
-    const { taskId } = req.params;
-    const { status, priority, title, task_description, due_date, notes, assigned_to } = req.body;
-    const task = req.task;
-
-    await client.query('BEGIN');
-
-    // Only creator or commander can change assignment
-    if (assigned_to && assigned_to !== task.assigned_to) {
-      if (req.user.professional_id !== task.created_by && req.user.role !== 'Commander') {
-        await client.query('ROLLBACK');
-        return res.status(403).json({ 
-          success: false, 
-          message: 'Only task creator or commanders can reassign tasks' 
-        });
-      }
-
-      // Verify new assignee exists
-      const newAssigneeCheck = await client.query(
-        'SELECT professional_id, name FROM professionals WHERE professional_id = $1',
-        [assigned_to]
-      );
-
-      if (newAssigneeCheck.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ 
-          success: false, 
-          message: 'New assignee not found' 
-        });
-      }
-    }
-
-    // Validate status transition
-    if (status && status !== task.status) {
-      const validTransitions = {
-        'pending': ['in_progress', 'cancelled'],
-        'in_progress': ['completed', 'pending', 'cancelled'],
-        'completed': ['in_progress'], // Allow reopening
-        'cancelled': ['pending']
-      };
-
-      if (!validTransitions[task.status]?.includes(status)) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          success: false, 
-          message: `Cannot transition from ${task.status} to ${status}` 
-        });
-      }
-    }
-
-    // Prevent modifications to completed/cancelled tasks by non-creators
-    if ((task.status === 'completed' || task.status === 'cancelled') && 
-        req.user.professional_id !== task.created_by && 
-        req.user.role !== 'Commander') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Cannot modify completed or cancelled tasks' 
-      });
-    }
-
-    const updates = [];
-    const values = [];
-    const changes = {};
-    let paramCount = 1;
-
-    if (status && status !== task.status) {
-      updates.push(`status = $${paramCount++}`);
-      values.push(status);
-      changes.status = { from: task.status, to: status };
-
-      // Set completion timestamp
-      if (status === 'completed') {
-        updates.push(`completed_at = CURRENT_TIMESTAMP`);
-        changes.completed_at = 'now';
-      }
-    }
-
-    if (priority && priority !== task.priority) {
-      updates.push(`priority = $${paramCount++}`);
-      values.push(priority);
-      changes.priority = { from: task.priority, to: priority };
-    }
-
-    if (title !== undefined && title !== task.title) {
-      updates.push(`title = $${paramCount++}`);
-      values.push(title || null);
-      changes.title = { from: task.title, to: title };
-    }
-
-    if (task_description && task_description !== task.task_description) {
-      updates.push(`task_description = $${paramCount++}`);
-      values.push(task_description);
-      changes.task_description = { from: task.task_description, to: task_description };
-    }
-
-    if (due_date !== undefined) {
-      const dueDateTime = due_date ? new Date(due_date) : null;
-      if (dueDateTime && dueDateTime < new Date() && status !== 'completed') {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Due date cannot be in the past' 
-        });
-      }
-      updates.push(`due_date = $${paramCount++}`);
-      values.push(due_date || null);
-      changes.due_date = { from: task.due_date, to: due_date };
-    }
-
-    if (notes !== undefined && notes !== task.notes) {
-      updates.push(`notes = $${paramCount++}`);
-      values.push(notes || null);
-      changes.notes = { from: task.notes, to: notes };
-    }
-
-    if (assigned_to && assigned_to !== task.assigned_to) {
-      updates.push(`assigned_to = $${paramCount++}`);
-      values.push(assigned_to);
-      changes.assigned_to = { from: task.assigned_to, to: assigned_to };
-    }
-
-    if (updates.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, message: 'No changes detected' });
-    }
-
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
-    updates.push(`updated_by = $${paramCount++}`);
-    values.push(req.user.professional_id);
-    values.push(taskId);
-
-    const result = await client.query(
-      `UPDATE tasks SET ${updates.join(', ')} 
-       WHERE task_id = $${paramCount} 
-       RETURNING *`,
-      values
-    );
-
-    // Log the changes
-    await client.query(
-      `INSERT INTO task_audit_log (task_id, action, changed_by, details, changed_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
-      [taskId, 'updated', req.user.professional_id, JSON.stringify(changes)]
-    );
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: 'Task updated successfully',
-      task: result.rows[0],
-      changes: Object.keys(changes)
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Update task error:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to update task',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    client.release();
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
   }
+
+  const result = await updateTask(req.params.taskId, req.body, req.user, pool);
+  return res.status(result.status).json(result.body);
 });
 
 // DELETE /tasks/delete/:taskId
-router.delete('/delete/:taskId', authenticateToken, checkTaskAccess, [
+router.delete('/delete/:taskId', authenticateToken, idempotencyMiddleware, checkTaskAccess, [
   param('taskId').notEmpty().trim()
 ], async (req, res) => {
   const client = await pool.connect();

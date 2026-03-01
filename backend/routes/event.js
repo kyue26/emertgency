@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authenticateToken } = require('../config/auth');
+const { idempotencyMiddleware } = require('../config/idempotency');
 
 const router = express.Router();
 
@@ -276,7 +277,7 @@ router.get('/:eventId', authenticateToken, [
 });
 
 // POST /events/create
-router.post('/create', authenticateToken, requireCommander, [
+router.post('/create', authenticateToken, idempotencyMiddleware, requireCommander, [
   body('name').notEmpty().trim().isLength({ min: 3, max: 200 }),
   body('location').optional().trim().isLength({ max: 500 }),
   body('start_time').optional().isISO8601().toDate(),
@@ -365,7 +366,7 @@ router.post('/create', authenticateToken, requireCommander, [
 });
 
 // PUT /events/update/:eventId
-router.put('/update/:eventId', authenticateToken, requireCommander, [
+router.put('/update/:eventId', authenticateToken, idempotencyMiddleware, requireCommander, [
   param('eventId').notEmpty().trim(),
   body('name').optional().notEmpty().trim().isLength({ min: 3, max: 200 }),
   body('location').optional().trim().isLength({ max: 500 }),
@@ -520,7 +521,7 @@ router.put('/update/:eventId', authenticateToken, requireCommander, [
 });
 
 // DELETE /events/delete/:eventId
-router.delete('/delete/:eventId', authenticateToken, requireCommander, [
+router.delete('/delete/:eventId', authenticateToken, idempotencyMiddleware, requireCommander, [
   param('eventId').notEmpty().trim(),
   query('force').optional().isBoolean().toBoolean()
 ], async (req, res) => {
@@ -624,7 +625,7 @@ router.delete('/delete/:eventId', authenticateToken, requireCommander, [
 });
 
 // POST /events/:eventId/camps/create
-router.post('/:eventId/camps/create', authenticateToken, requireCommander, [
+router.post('/:eventId/camps/create', authenticateToken, idempotencyMiddleware, requireCommander, [
   param('eventId').notEmpty().trim(),
   body('location_name').notEmpty().trim().isLength({ min: 2, max: 200 }),
   body('capacity').optional().isInt({ min: 0, max: 10000 })
@@ -705,7 +706,7 @@ router.post('/:eventId/camps/create', authenticateToken, requireCommander, [
 });
 
 // PUT /events/:eventId/camps/update/:campId
-router.put('/:eventId/camps/update/:campId', authenticateToken, requireCommander, [
+router.put('/:eventId/camps/update/:campId', authenticateToken, idempotencyMiddleware, requireCommander, [
   param('eventId').notEmpty().trim(),
   param('campId').notEmpty().trim(),
   body('location_name').optional().notEmpty().trim().isLength({ min: 2, max: 200 }),
@@ -822,7 +823,7 @@ router.put('/:eventId/camps/update/:campId', authenticateToken, requireCommander
 });
 
 // DELETE /events/:eventId/camps/delete/:campId
-router.delete('/:eventId/camps/delete/:campId', authenticateToken, requireCommander, [
+router.delete('/:eventId/camps/delete/:campId', authenticateToken, idempotencyMiddleware, requireCommander, [
   param('eventId').notEmpty().trim(),
   param('campId').notEmpty().trim(),
   query('force').optional().isBoolean().toBoolean()

@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authenticateToken } = require('../config/auth');
+const { idempotencyMiddleware } = require('../config/idempotency');
 
 const router = express.Router();
 
@@ -173,7 +174,7 @@ router.get('/:groupId', authenticateToken, [
 });
 
 // POST /groups/register
-router.post('/register', authenticateToken, [
+router.post('/register', authenticateToken, idempotencyMiddleware, [
   body('group_name').notEmpty().trim().isLength({ min: 2, max: 100 }),
   body('lead_professional_id').optional().trim(),
   body('max_members').optional().isInt({ min: 1, max: 50 })
@@ -279,7 +280,7 @@ router.post('/register', authenticateToken, [
 });
 
 // PUT /groups/update/:groupId
-router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, [
+router.put('/update/:groupId', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, [
   param('groupId').notEmpty().trim(),
   body('group_name').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
   body('lead_professional_id').optional().trim(),
@@ -440,7 +441,7 @@ router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, [
 });
 
 // POST /groups/:groupId/members/add
-router.post('/:groupId/members/add', authenticateToken, requireCommanderOrLead, [
+router.post('/:groupId/members/add', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, [
   param('groupId').notEmpty().trim(),
   body('professional_id').notEmpty().trim()
 ], async (req, res) => {
@@ -537,7 +538,7 @@ router.post('/:groupId/members/add', authenticateToken, requireCommanderOrLead, 
 });
 
 // DELETE /groups/:groupId/members/remove/:professionalId
-router.delete('/:groupId/members/remove/:professionalId', authenticateToken, requireCommanderOrLead, [
+router.delete('/:groupId/members/remove/:professionalId', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, [
   param('groupId').notEmpty().trim(),
   param('professionalId').notEmpty().trim()
 ], async (req, res) => {
@@ -627,7 +628,7 @@ router.delete('/:groupId/members/remove/:professionalId', authenticateToken, req
 });
 
 // DELETE /groups/delete/:groupId
-router.delete('/delete/:groupId', authenticateToken, [
+router.delete('/delete/:groupId', authenticateToken, idempotencyMiddleware, [
   param('groupId').notEmpty().trim(),
   query('force').optional().isBoolean().toBoolean()
 ], async (req, res) => {
