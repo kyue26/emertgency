@@ -226,8 +226,8 @@ router.get('/statistics', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /casualties - Create (REST-style, same as /add; accepts eventId, optional injuredPersonId)
-router.post('/', authenticateToken, checkEventAccess, [
+// POST /casualties - Create (REST-style; accepts eventId, campId, injuredPersonId; idempotent)
+router.post('/', authenticateToken, idempotencyMiddleware, checkEventAccess, [
   body('event_id').optional().trim(),
   body('eventId').optional().trim(),
   body('camp_id').optional().trim(),
@@ -243,116 +243,16 @@ router.post('/', authenticateToken, checkEventAccess, [
   body('injured_person_id').optional().trim(),
   body('injuredPersonId').optional().trim()
 ], async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-    const event_id = req.body.event_id || req.body.eventId;
-    if (!event_id) {
-      return res.status(400).json({ success: false, message: 'event_id or eventId is required' });
-    }
-    const camp_id = req.body.camp_id || req.body.campId;
-    const color = req.body.color;
-    const breathing = req.body.breathing;
-    const conscious = req.body.conscious;
-    const bleeding = req.body.bleeding;
-    const hospital_status = req.body.hospital_status || req.body.hospitalStatus;
-    const other_information = req.body.other_information || req.body.otherInformation;
-    const injured_person_id = req.body.injured_person_id || req.body.injuredPersonId || `inj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    await client.query('BEGIN');
-
-    const eventCheck = await client.query(
-      'SELECT event_id, status FROM events WHERE event_id = $1',
-      [event_id]
-    );
-    if (eventCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Event not found' });
-    }
-    if (eventCheck.rows[0].status === 'finished') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, message: 'Cannot add casualties to finished events' });
-    }
-
-    if (camp_id) {
-      const campCheck = await client.query(
-        'SELECT camp_id, event_id FROM camps WHERE camp_id = $1',
-        [camp_id]
-      );
-      if (campCheck.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ success: false, message: 'Camp not found' });
-      }
-      if (campCheck.rows[0].event_id !== event_id) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ success: false, message: 'Camp does not belong to specified event' });
-      }
-    }
-
-    const result = await client.query(
-      `INSERT INTO injured_persons
-       (injured_person_id, event_id, camp_id, color, breathing, conscious, bleeding,
-        hospital_status, other_information, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
-       RETURNING *`,
-      [
-        injured_person_id,
-        event_id,
-        camp_id || null,
-        color,
-        breathing ?? null,
-        conscious ?? null,
-        bleeding ?? null,
-        hospital_status || null,
-        other_information || null,
-        req.user.professional_id
-      ]
-    );
-
-    await logCasualtyChange(client, injured_person_id, req.user.professional_id, { action: 'created' }, null);
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      success: true,
-      message: 'Casualty created successfully',
-      casualty: result.rows[0]
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Create casualty error:', error.message);
-    if (error.code === '23505') {
-      return res.status(409).json({ success: false, message: 'Casualty ID already exists' });
-    }
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create casualty',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    client.release();
-  }
-});
-
-// POST /casualties/add
-router.post('/add', authenticateToken, idempotencyMiddleware, checkEventAccess, [
-  body('event_id').notEmpty().trim(),
-  body('camp_id').optional().trim(),
-  body('color').isIn(['green', 'yellow', 'red', 'black']),
-  body('breathing').optional().isBoolean(),
-  body('conscious').optional().isBoolean(),
-  body('bleeding').optional().isBoolean(),
-  body('hospital_status').optional().trim().isLength({ max: 255 }),
-  body('other_information').optional().trim().isLength({ max: 1000 })
-], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ success: false, errors: errors.array() });
   }
 
   const result = await createCasualty(req.body, req.user, pool);
+
+  if (result.status === 409) {
+    return res.status(409).json(result.body);
+  }
   return res.status(result.status).json(result.body);
 });
 
@@ -549,71 +449,8 @@ router.put('/update/:casualtyId/status', authenticateToken, idempotencyMiddlewar
   }
 });
 
-// GET /casualties/statistics - by priority color (must be before /:casualtyId routes)
-router.get('/statistics', authenticateToken, async (req, res) => {
-  try {
-    const eventId = req.query.event_id;
-
-    let sqlQuery = `
-      SELECT
-        color,
-        COUNT(*) FILTER (WHERE hospital_status IS NULL OR hospital_status = '') as in_treatment,
-        COUNT(*) FILTER (WHERE hospital_status IS NOT NULL AND hospital_status != '') as transported,
-        COUNT(*) as total
-      FROM injured_persons
-    `;
-    const params = [];
-
-    if (eventId) {
-      sqlQuery += ' WHERE event_id = $1';
-      params.push(eventId);
-    }
-
-    sqlQuery += `
-      GROUP BY color
-      ORDER BY
-        CASE color
-          WHEN 'red' THEN 1
-          WHEN 'yellow' THEN 2
-          WHEN 'green' THEN 3
-          WHEN 'black' THEN 4
-        END
-    `;
-
-    const result = await pool.query(sqlQuery, params);
-
-    const statistics = {
-      red: { color: 'red', in_treatment: 0, transported: 0, total: 0 },
-      yellow: { color: 'yellow', in_treatment: 0, transported: 0, total: 0 },
-      green: { color: 'green', in_treatment: 0, transported: 0, total: 0 },
-      black: { color: 'black', in_treatment: 0, transported: 0, total: 0 }
-    };
-
-    result.rows.forEach(row => {
-      statistics[row.color] = {
-        color: row.color,
-        in_treatment: parseInt(row.in_treatment, 10),
-        transported: parseInt(row.transported, 10),
-        total: parseInt(row.total, 10)
-      };
-    });
-
-    res.json({
-      success: true,
-      data: statistics
-    });
-  } catch (error) {
-    console.error('Casualty statistics error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch casualty statistics',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// GET /casualties/:casualtyId/audit - Alias for /history
-router.get('/:casualtyId/audit', authenticateToken, [
+// GET /casualties/:casualtyId/history - Audit log with professional names
+router.get('/:casualtyId/history', authenticateToken, [
   param('casualtyId').notEmpty().trim()
 ], async (req, res) => {
   try {
@@ -628,48 +465,7 @@ router.get('/:casualtyId/audit', authenticateToken, [
       return res.status(404).json({ success: false, message: 'Casualty not found' });
     }
 
-    const history = await pool.query(
-      `SELECT * FROM casualty_audit_log WHERE casualty_id = $1 ORDER BY changed_at DESC`,
-      [casualtyId]
-    );
-
-    res.json({
-      success: true,
-      audit: history.rows
-    });
-  } catch (error) {
-    console.error('Get casualty audit error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve audit history'
-    });
-  }
-});
-
-// GET /casualties/:casualtyId/history
-router.get('/:casualtyId/history', authenticateToken, [
-  param('casualtyId').notEmpty().trim()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-
-    const { casualtyId } = req.params;
-
-    // Check if casualty exists and user has access
-    const casualtyCheck = await pool.query(
-      `SELECT ip.event_id FROM injured_persons ip WHERE ip.injured_person_id = $1`,
-      [casualtyId]
-    );
-
-    if (casualtyCheck.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Casualty not found' });
-    }
-
-    // Get audit log
-    const history = await pool.query(
+    const result = await pool.query(
       `SELECT cal.*, p.name as changed_by_name, p.role as changed_by_role
        FROM casualty_audit_log cal
        LEFT JOIN professionals p ON cal.changed_by = p.professional_id
@@ -680,47 +476,13 @@ router.get('/:casualtyId/history', authenticateToken, [
 
     res.json({
       success: true,
-      history: history.rows
+      history: result.rows
     });
   } catch (error) {
     console.error('Get casualty history error:', error.message);
     res.status(500).json({
       success: false,
       message: 'Failed to retrieve history'
-    });
-  }
-});
-
-// GET /casualties/:casualtyId/audit - Alias for /history (same as injured-persons API)
-router.get('/:casualtyId/audit', authenticateToken, [
-  param('casualtyId').notEmpty().trim()
-], async (req, res) => {
-  try {
-    const { casualtyId } = req.params;
-
-    const casualtyCheck = await pool.query(
-      'SELECT ip.event_id FROM injured_persons ip WHERE ip.injured_person_id = $1',
-      [casualtyId]
-    );
-
-    if (casualtyCheck.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Casualty not found' });
-    }
-
-    const history = await pool.query(
-      `SELECT * FROM casualty_audit_log WHERE casualty_id = $1 ORDER BY changed_at DESC`,
-      [casualtyId]
-    );
-
-    res.json({
-      success: true,
-      audit: history.rows
-    });
-  } catch (error) {
-    console.error('Get casualty audit error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve audit history'
     });
   }
 });
@@ -844,6 +606,27 @@ router.put('/:casualtyId', authenticateToken, [
     if (casualty.event_status === 'finished') {
       await client.query('ROLLBACK');
       return res.status(400).json({ success: false, message: 'Cannot modify casualties in finished events' });
+    }
+
+    // Verify new camp_id if provided (prevents FK violation). Allow null/empty to clear assignment.
+    if (camp_id !== undefined && camp_id !== casualty.camp_id && camp_id) {
+      const campCheck = await client.query(
+        'SELECT camp_id, event_id FROM camps WHERE camp_id = $1',
+        [camp_id]
+      );
+
+      if (campCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ success: false, message: 'Camp not found' });
+      }
+
+      if (campCheck.rows[0].event_id !== casualty.event_id) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot transfer casualty to camp in different event'
+        });
+      }
     }
 
     const updates = [];

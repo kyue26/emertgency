@@ -345,7 +345,7 @@ export const casualtyAPI = {
     return await apiRequest(`/casualties/${casualtyId}`);
   },
 
-  // POST /casualties - create (REST-style; accepts eventId, optional injuredPersonId)
+  // POST /casualties - create (REST-style; accepts eventId, campId, optional injuredPersonId; idempotent)
   createCasualty: async (casualtyData) => {
     return await apiRequest('/casualties', {
       method: 'POST',
@@ -353,12 +353,9 @@ export const casualtyAPI = {
     });
   },
 
-  // POST /casualties/add
+  // Alias for createCasualty (POST /casualties)
   addCasualty: async (casualtyData) => {
-    return await apiRequest('/casualties/add', {
-      method: 'POST',
-      body: JSON.stringify(casualtyData),
-    });
+    return casualtyAPI.createCasualty(casualtyData);
   },
 
   // PUT /casualties/update/:casualtyId/status
@@ -376,14 +373,9 @@ export const casualtyAPI = {
     });
   },
 
-  // GET /casualties/:casualtyId/history
+  // GET /casualties/:casualtyId/history - Audit log with professional names
   getCasualtyHistory: async (casualtyId) => {
     return await apiRequest(`/casualties/${casualtyId}/history`);
-  },
-
-  // GET /casualties/:casualtyId/audit - audit log (same data as history, different key)
-  getCasualtyAudit: async (casualtyId) => {
-    return await apiRequest(`/casualties/${casualtyId}/audit`);
   },
 };
 

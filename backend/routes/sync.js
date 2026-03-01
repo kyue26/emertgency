@@ -172,7 +172,7 @@ router.get('/', authenticateToken, [
 const PATH_PATTERNS = [
   {
     method: 'POST',
-    re: /^casualties\/add$/,
+    re: /^casualties\/?$/,
     call: (match, body, user) => createCasualty(body, user, pool)
   },
   {

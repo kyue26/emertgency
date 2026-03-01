@@ -16,18 +16,20 @@ const logCasualtyChange = async (client, casualtyId, professionalId, changes, pr
   }
 };
 
-// POST /casualties/add
+// POST /casualties - Create casualty (accepts event_id/eventId, camp_id/campId, injured_person_id/injuredPersonId)
 const createCasualty = async (body, user, pool) => {
-  const {
-    event_id,
-    camp_id,
-    color,
-    breathing,
-    conscious,
-    bleeding,
-    hospital_status,
-    other_information
-  } = body;
+  const event_id = body.event_id || body.eventId;
+  if (!event_id) {
+    return { status: 400, body: { success: false, message: 'event_id or eventId is required' } };
+  }
+  const camp_id = body.camp_id || body.campId;
+  const color = body.color;
+  const breathing = body.breathing;
+  const conscious = body.conscious;
+  const bleeding = body.bleeding;
+  const hospital_status = body.hospital_status || body.hospitalStatus;
+  const other_information = body.other_information || body.otherInformation;
+  const injured_person_id = body.injured_person_id || body.injuredPersonId || `inj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
   const client = await pool.connect();
   try {
@@ -65,8 +67,6 @@ const createCasualty = async (body, user, pool) => {
       }
     }
 
-    const injured_person_id = `inj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
     const result = await client.query(
       `INSERT INTO injured_persons
        (injured_person_id, event_id, camp_id, color, breathing, conscious, bleeding,
@@ -89,7 +89,7 @@ const createCasualty = async (body, user, pool) => {
       status: 201,
       body: {
         success: true,
-        message: 'Injured person added successfully',
+        message: 'Casualty created successfully',
         casualty: result.rows[0]
       }
     };
@@ -100,8 +100,11 @@ const createCasualty = async (body, user, pool) => {
     if (error.code === '23503') {
       return { status: 400, body: { success: false, message: 'Invalid event_id or camp_id' } };
     }
+    if (error.code === '23505') {
+      return { status: 409, body: { success: false, message: 'Casualty ID already exists' } };
+    }
 
-    return { status: 500, body: { success: false, message: 'Failed to add casualty' } };
+    return { status: 500, body: { success: false, message: 'Failed to create casualty' } };
   } finally {
     client.release();
   }
@@ -109,7 +112,13 @@ const createCasualty = async (body, user, pool) => {
 
 // PUT /casualties/update/:casualtyId/status
 const updateCasualtyStatus = async (casualtyId, body, user, pool) => {
-  const { color, breathing, conscious, bleeding, hospital_status, other_information, camp_id } = body;
+  const color = body.color;
+  const breathing = body.breathing;
+  const conscious = body.conscious;
+  const bleeding = body.bleeding;
+  const hospital_status = body.hospital_status ?? body.hospitalStatus;
+  const other_information = body.other_information ?? body.otherInformation;
+  const camp_id = body.camp_id ?? body.campId;
 
   const client = await pool.connect();
   try {
