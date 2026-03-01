@@ -85,8 +85,8 @@ router.get('/reports/summary', authenticateToken, async (req, res) => {
   try {
     const { event_id, start_date, end_date } = req.query;
 
-    // Validate inputs
-    if (event_id && isNaN(parseInt(event_id))) {
+    // Validate inputs (event_id is a string like "evt_123_abc", not numeric)
+    if (event_id && (typeof event_id !== 'string' || !event_id.trim())) {
       return res.status(400).json({ 
         success: false, 
         message: 'Invalid event_id parameter' 
