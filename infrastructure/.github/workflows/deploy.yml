@@ -1,0 +1,71 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Deploy to EC2 instances
+        env:
+          EC2_HOSTS: ${{ secrets.EC2_HOSTS }}
+        run: |
+          if [ -z "$EC2_HOSTS" ]; then
+            echo "::error::EC2_HOSTS secret is not set for this environment"
+            exit 1
+          fi
+
+          SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/deploy_key"
+
+          IFS=',' read -ra HOSTS <<< "$EC2_HOSTS"
+          FAILED=0
+          for HOST in "${HOSTS[@]}"; do
+            HOST=$(echo "$HOST" | xargs)
+            echo "=== Deploying to $HOST ==="
+
+            if ssh $SSH_OPTS ec2-user@"$HOST" << 'REMOTE'
+              set -euo pipefail
+              cd /var/app/emertgency
+              git pull origin main
+              cd backend
+              npm install --production
+              pm2 restart emertgency
+              echo "Deploy complete on $(hostname)"
+REMOTE
+            then
+              echo "=== Done: $HOST ==="
+            else
+              echo "::error::Deploy failed on $HOST"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            exit 1
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
