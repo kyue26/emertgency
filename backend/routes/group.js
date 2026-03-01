@@ -721,7 +721,7 @@ router.delete('/delete/:groupId', authenticateToken, idempotencyMiddleware, [
       );
     }
 
-    // Delete audit log first (FK constraint)
+    // Delete audit logs referencing this group (FK constraint)
     await client.query('DELETE FROM group_audit_log WHERE group_id = $1', [groupId]);
 
     // Delete group
