@@ -10,10 +10,11 @@ import {
   Alert,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { Dropdown } from "react-native-element-dropdown";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useFocusEffect } from "@react-navigation/native";
 import { colors, spacing, shadows, radius } from "../../styles/CommanderTheme";
-import commanderApi from "../../services/commanderApi";
+import commanderApi, { getCommanderUser } from "../../services/commanderApi";
 
 const ROLE_KEYS = [
   "command",
@@ -39,7 +40,17 @@ const ROLE_LABELS = {
 
 const AnimatedSection = Animated.createAnimatedComponent(View);
 
-export default function CommanderDrillSetupScreen({ navigation }) {
+// First MERT member in list = incident commander. Fallback: first Commander, then first in list.
+function getIncidentCommanderName(professionals) {
+  if (!professionals?.length) return null;
+  const mert = professionals.find((p) => (p.role || "").toLowerCase().includes("mert"));
+  if (mert) return mert.name;
+  const cmd = professionals.find((p) => (p.role || "").toLowerCase() === "commander");
+  if (cmd) return cmd.name;
+  return professionals[0]?.name || null;
+}
+
+export default function CommanderDrillSetupScreen() {
   const [drillInfo, setDrillInfo] = useState({
     drillName: "",
     location: "",
@@ -48,27 +59,58 @@ export default function CommanderDrillSetupScreen({ navigation }) {
   const [roleAssignments, setRoleAssignments] = useState(
     ROLE_KEYS.reduce((acc, k) => ({ ...acc, [k]: "" }), {})
   );
+  const [professionals, setProfessionals] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [isDrillActive, setIsDrillActive] = useState(false);
+
+  const incidentCommanderName = getIncidentCommanderName(professionals);
+
+  const canAssignRole = useCallback(
+    (roleKey) => {
+      const assigned = roleAssignments[roleKey] || "";
+      const currentName = currentUser?.name || "";
+      if (!assigned) {
+        return currentName === incidentCommanderName;
+      }
+      return assigned === currentName;
+    },
+    [roleAssignments, currentUser?.name, incidentCommanderName]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await commanderApi.getActiveDrill();
+      const [data, profs, user] = await Promise.all([
+        commanderApi.getActiveDrill(),
+        commanderApi.getProfessionals(),
+        getCommanderUser(),
+      ]);
+      setProfessionals(Array.isArray(profs) ? profs : []);
+      setCurrentUser(user);
+
       if (data) {
+        setIsDrillActive(data.status === "active" || !!data.is_active);
         setDrillInfo({
           drillName: data.drill_name || data.drillName || "",
           location: data.location || "",
           date: data.drill_date
             ? new Date(data.drill_date).toISOString().split("T")[0]
-            : drillInfo.date,
+            : new Date().toISOString().split("T")[0],
         });
-        if (data.role_assignments) {
-          setRoleAssignments((prev) => ({ ...prev, ...data.role_assignments }));
+        const profList = Array.isArray(profs) ? profs : [];
+        const icName = getIncidentCommanderName(profList);
+        let assignments = { ...data.role_assignments };
+        if (!assignments.command && icName) {
+          assignments.command = icName;
         }
+        setRoleAssignments(assignments);
+      } else {
+        setIsDrillActive(false);
       }
     } catch (e) {
       console.warn("Load drill error:", e);
@@ -103,17 +145,76 @@ export default function CommanderDrillSetupScreen({ navigation }) {
     }
   };
 
-  const handleStartDrill = () => {
+  const handleStartDrill = async () => {
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      const assignments = { ...roleAssignments };
+      if (!assignments.command && incidentCommanderName) {
+        assignments.command = incidentCommanderName;
+      }
+      await commanderApi.startDrill({
+        drillName: drillInfo.drillName,
+        location: drillInfo.location,
+        date: drillInfo.date,
+        roleAssignments: assignments,
+      });
+      setRoleAssignments(assignments);
+      setIsDrillActive(true);
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (e) {
+      setError(e.message || "Failed to start drill");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRoleChange = useCallback(
+    async (roleKey, value) => {
+      const next = { ...roleAssignments, [roleKey]: value || "" };
+      setRoleAssignments(next);
+      if (isDrillActive) {
+        try {
+          await commanderApi.createOrUpdateDrill({
+            drillName: drillInfo.drillName,
+            location: drillInfo.location,
+            date: drillInfo.date,
+            roleAssignments: next,
+          });
+        } catch (e) {
+          console.warn("Auto-save role change failed:", e);
+          setRoleAssignments(roleAssignments);
+        }
+      }
+    },
+    [roleAssignments, isDrillActive, drillInfo]
+  );
+
+  const handleStopDrill = () => {
     Alert.alert(
-      "Start drill",
-      "Save setup and open Officer Checklist?",
+      "Stop Drill",
+      "Are you sure you want to stop the drill? This will end the current active drill session.",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Start",
+          text: "Stop Drill",
+          style: "destructive",
           onPress: async () => {
-            await handleSave();
-            navigation.navigate("CommanderChecklist");
+            setSaving(true);
+            setError(null);
+            setSuccess(false);
+            try {
+              await commanderApi.stopDrill();
+              setIsDrillActive(false);
+              setSuccess(true);
+              setTimeout(() => setSuccess(false), 3000);
+            } catch (e) {
+              setError(e.message || "Failed to stop drill");
+            } finally {
+              setSaving(false);
+            }
           },
         },
       ]
@@ -143,9 +244,18 @@ export default function CommanderDrillSetupScreen({ navigation }) {
       {success ? (
         <AnimatedSection entering={FadeInDown.duration(300)} style={styles.successBox}>
           <Feather name="check-circle" size={20} color={colors.green} />
-          <Text style={styles.successText}>Drill setup saved successfully.</Text>
+          <Text style={styles.successText}>
+            {isDrillActive ? "Drill started successfully." : "Drill stopped successfully."}
+          </Text>
         </AnimatedSection>
       ) : null}
+
+      {isDrillActive && (
+        <View style={styles.activeBanner}>
+          <Feather name="radio" size={20} color="#fff" />
+          <Text style={styles.activeBannerText}>Drill is active — Transport officers can start their 5‑minute tracking timer from the Officer Checklist.</Text>
+        </View>
+      )}
 
       <AnimatedSection entering={FadeInDown.duration(400).delay(0)} style={styles.card}>
         <View style={styles.cardHeader}>
@@ -193,26 +303,46 @@ export default function CommanderDrillSetupScreen({ navigation }) {
           <View style={styles.cardTitleWrap}>
             <Text style={styles.cardTitle}>Role assignments</Text>
             <Text style={styles.cardSubtitle}>
-              Assign names to each role; they’ll appear in checklists.
+              Assign names to each role; they'll appear in checklists. Changes auto-save during an active drill.
             </Text>
           </View>
         </View>
         <View style={styles.cardBody}>
+          <Text style={styles.roleHint}>
+            Incident Commander (first MERT member) can assign empty roles. Only the assigned person can transfer a role.
+          </Text>
           <View style={styles.roleGrid}>
-            {ROLE_KEYS.map((key, index) => (
-              <View key={key} style={styles.roleCell}>
-                <Text style={styles.roleLabel}>{ROLE_LABELS[key]}</Text>
-                <TextInput
-                  style={styles.inputSmall}
-                  placeholder={`${ROLE_LABELS[key]} name`}
-                  placeholderTextColor={colors.textSecondary}
-                  value={roleAssignments[key] || ""}
-                  onChangeText={(t) =>
-                    setRoleAssignments((p) => ({ ...p, [key]: t }))
-                  }
-                />
-              </View>
-            ))}
+            {ROLE_KEYS.map((key) => {
+              const editable = canAssignRole(key);
+              const dropdownData = [
+                { label: "— Unassigned", value: "" },
+                ...professionals.map((p) => ({ label: p.name || p.email || "?", value: p.name || "" })),
+              ];
+              return (
+                <View key={key} style={styles.roleCell}>
+                  <Text style={styles.roleLabel}>{ROLE_LABELS[key]}</Text>
+                  {editable ? (
+                    <Dropdown
+                      style={styles.roleDropdown}
+                      data={dropdownData}
+                      labelField="label"
+                      valueField="value"
+                      placeholder={`Select ${ROLE_LABELS[key]}`}
+                      value={roleAssignments[key] || ""}
+                      onChange={(item) => handleRoleChange(key, item.value || "")}
+                      placeholderStyle={styles.dropdownPlaceholder}
+                      selectedTextStyle={styles.dropdownSelected}
+                    />
+                  ) : (
+                    <View style={styles.roleReadOnly}>
+                      <Text style={styles.roleReadOnlyText}>
+                        {roleAssignments[key] || "— Unassigned"}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </View>
         </View>
       </AnimatedSection>
@@ -226,7 +356,7 @@ export default function CommanderDrillSetupScreen({ navigation }) {
           onPress={handleSave}
           disabled={saving}
         >
-          {saving ? (
+          {saving && !isDrillActive ? (
             <ActivityIndicator size="small" color={colors.pennBlue} />
           ) : (
             <>
@@ -235,15 +365,29 @@ export default function CommanderDrillSetupScreen({ navigation }) {
             </>
           )}
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.btn, styles.btnPrimary]}
-          onPress={handleStartDrill}
-          disabled={saving}
-        >
-          <Feather name="play-circle" size={20} color="#fff" />
-          <Text style={[styles.btnText, { color: "#fff" }]}>Start drill</Text>
-        </TouchableOpacity>
+
+        {!isDrillActive ? (
+          <TouchableOpacity
+            style={[styles.btn, styles.btnPrimary]}
+            onPress={handleStartDrill}
+            disabled={saving || !drillInfo.drillName}
+          >
+            <Feather name="play-circle" size={20} color="#fff" />
+            <Text style={[styles.btnText, { color: "#fff" }]}>Start drill</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.btn, styles.btnStop]}
+            onPress={handleStopDrill}
+            disabled={saving}
+          >
+            <Feather name="stop-circle" size={20} color="#fff" />
+            <Text style={[styles.btnText, { color: "#fff" }]}>Stop drill</Text>
+          </TouchableOpacity>
+        )}
       </AnimatedSection>
+
+      <View style={{ height: spacing.xl * 2 }} />
     </ScrollView>
   );
 }
@@ -256,6 +400,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: colors.background,
+  },
+  activeBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.green,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
+  },
+  activeBannerText: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "500",
   },
   errorBox: {
     flexDirection: "row",
@@ -348,15 +507,33 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 6,
   },
-  inputSmall: {
+  roleHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+    fontStyle: "italic",
+  },
+  roleDropdown: {
     backgroundColor: "#F9FAFB",
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
-    padding: spacing.sm + 2,
-    fontSize: 14,
-    color: colors.text,
+    paddingHorizontal: spacing.sm,
+    minHeight: 40,
   },
+  dropdownPlaceholder: { color: colors.textSecondary, fontSize: 14 },
+  dropdownSelected: { fontSize: 14, color: colors.text },
+  roleReadOnly: {
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm + 2,
+    minHeight: 40,
+    justifyContent: "center",
+  },
+  roleReadOnlyText: { fontSize: 14, color: colors.textSecondary },
   actions: {
     flexDirection: "row",
     gap: spacing.md,
@@ -379,6 +556,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBg,
     borderWidth: 2,
     borderColor: colors.pennBlue,
+  },
+  btnStop: {
+    backgroundColor: colors.red,
+    ...shadows.card,
   },
   btnText: { fontSize: 16, fontWeight: "600" },
 });

@@ -131,6 +131,22 @@ const commanderApi = {
     });
   },
 
+  async startDrill(payload) {
+    return request('/drills', {
+      method: 'POST',
+      body: JSON.stringify({
+        drillName: payload.drillName,
+        location: payload.location,
+        date: payload.date,
+        roleAssignments: payload.roleAssignments || {},
+      }),
+    });
+  },
+
+  async stopDrill() {
+    return request('/drills/stop', { method: 'POST' });
+  },
+
   async getProfessionals() {
     const data = await request('/professionals', { method: 'GET' });
     const list = Array.isArray(data) ? data : data.data || [];
