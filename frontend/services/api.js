@@ -286,9 +286,10 @@ export const campAPI = {
     return await apiRequest(endpoint);
   },
 
-  // GET /camps/:id
-  getCamp: async (id) => {
-    return await apiRequest(`/camps/${id}`);
+  // GET /camps/:id (optional eventId to verify camp belongs to event)
+  getCamp: async (id, eventId = null) => {
+    const query = eventId ? `?eventId=${encodeURIComponent(eventId)}` : '';
+    return await apiRequest(`/camps/${id}${query}`);
   },
 
   // POST /camps
@@ -299,18 +300,23 @@ export const campAPI = {
     });
   },
 
-  // PUT /camps/:id
-  updateCamp: async (id, updates) => {
+  // PUT /camps/:id (eventId required in updates or as third param)
+  updateCamp: async (id, updates, eventId = null) => {
+    const body = { ...updates };
+    if (eventId) body.eventId = eventId;
     return await apiRequest(`/camps/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(updates),
+      body: JSON.stringify(body),
     });
   },
 
-  // DELETE /camps/:id (?force=true if camp has assignments)
-  deleteCamp: async (id, force = false) => {
-    const queryString = force ? '?force=true' : '';
-    return await apiRequest(`/camps/${id}${queryString}`, {
+  // DELETE /camps/:id (eventId required; ?force=true if camp has assignments)
+  deleteCamp: async (id, force = false, eventId = null) => {
+    const params = new URLSearchParams();
+    if (force) params.set('force', 'true');
+    if (eventId) params.set('eventId', eventId);
+    const queryString = params.toString();
+    return await apiRequest(`/camps/${id}${queryString ? `?${queryString}` : ''}`, {
       method: 'DELETE',
     });
   },
