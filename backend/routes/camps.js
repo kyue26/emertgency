@@ -1,8 +1,19 @@
 const express = require('express');
 const pool = require('../config/database');
-const { authenticateToken, authorize } = require('../config/auth');
+const { authenticateToken } = require('../config/auth');
+const { idempotencyMiddleware } = require('../config/idempotency');
 
 const router = express.Router();
+
+const requireCommander = (req, res, next) => {
+  if (req.user.role !== 'Commander') {
+    return res.status(403).json({
+      success: false,
+      message: 'Only commanders can manage camps'
+    });
+  }
+  next();
+};
 
 // GET /camps - Get all camps (optionally filter by event)
 router.get('/', authenticateToken, async (req, res) => {
@@ -35,16 +46,26 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /camps/:id - Get camp by ID
+// GET /camps/:id - Get camp by ID (optional ?eventId= to verify camp belongs to event)
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query('SELECT * FROM camps WHERE camp_id = $1', [id]);
+    const eventId = req.query.eventId;
+
+    let result;
+    if (eventId) {
+      result = await pool.query(
+        'SELECT * FROM camps WHERE camp_id = $1 AND event_id = $2',
+        [id, eventId]
+      );
+    } else {
+      result = await pool.query('SELECT * FROM camps WHERE camp_id = $1', [id]);
+    }
 
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Camp not found'
+        message: eventId ? 'Camp not found or does not belong to the specified event' : 'Camp not found'
       });
     }
 
@@ -62,8 +83,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /camps - Create new camp
-router.post('/', authenticateToken, authorize('Commander', 'Medical Officer'), async (req, res) => {
+// POST /camps - Create new camp (eventId in body)
+router.post('/', authenticateToken, idempotencyMiddleware, requireCommander, async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -142,14 +163,22 @@ router.post('/', authenticateToken, authorize('Commander', 'Medical Officer'), a
   }
 });
 
-// PUT /camps/:id - Update camp
-router.put('/:id', authenticateToken, authorize('Commander', 'Medical Officer'), async (req, res) => {
+// PUT /camps/:id - Update camp (eventId required in body or query to verify association)
+router.put('/:id', authenticateToken, idempotencyMiddleware, requireCommander, async (req, res) => {
   const client = await pool.connect();
 
   try {
     const { id } = req.params;
+    const eventId = req.body.eventId ?? req.body.event_id ?? req.query.eventId;
     const { locationName, capacity } = req.body;
     const location_name = locationName ?? req.body.location_name;
+
+    if (!eventId) {
+      return res.status(400).json({
+        success: false,
+        message: 'eventId is required (in body or query) to verify camp belongs to event'
+      });
+    }
 
     await client.query('BEGIN');
 
@@ -158,13 +187,16 @@ router.put('/:id', authenticateToken, authorize('Commander', 'Medical Officer'),
               (SELECT COUNT(*) FROM professionals p WHERE p.current_camp_id = c.camp_id) as assigned_professionals
        FROM camps c
        JOIN events e ON c.event_id = e.event_id
-       WHERE c.camp_id = $1`,
-      [id]
+       WHERE c.camp_id = $1 AND c.event_id = $2`,
+      [id, eventId]
     );
 
     if (campCheck.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Camp not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Camp not found or does not belong to the specified event'
+      });
     }
 
     const camp = campCheck.rows[0];
@@ -238,13 +270,21 @@ router.put('/:id', authenticateToken, authorize('Commander', 'Medical Officer'),
   }
 });
 
-// DELETE /camps/:id - Delete camp
-router.delete('/:id', authenticateToken, authorize('Commander'), async (req, res) => {
+// DELETE /camps/:id - Delete camp (eventId required in query to verify association)
+router.delete('/:id', authenticateToken, idempotencyMiddleware, requireCommander, async (req, res) => {
   const client = await pool.connect();
 
   try {
     const { id } = req.params;
+    const eventId = req.query.eventId;
     const force = req.query.force === 'true';
+
+    if (!eventId) {
+      return res.status(400).json({
+        success: false,
+        message: 'eventId is required (query param ?eventId=) to verify camp belongs to event'
+      });
+    }
 
     const campCheck = await client.query(
       `SELECT c.*, e.status as event_status,
@@ -252,14 +292,14 @@ router.delete('/:id', authenticateToken, authorize('Commander'), async (req, res
               (SELECT COUNT(*) FROM injured_persons ip WHERE ip.camp_id = c.camp_id) as casualty_count
        FROM camps c
        JOIN events e ON c.event_id = e.event_id
-       WHERE c.camp_id = $1`,
-      [id]
+       WHERE c.camp_id = $1 AND c.event_id = $2`,
+      [id, eventId]
     );
 
     if (campCheck.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Camp not found'
+        message: 'Camp not found or does not belong to the specified event'
       });
     }
 
