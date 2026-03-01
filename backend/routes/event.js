@@ -103,6 +103,61 @@ router.get('/', authenticateToken, [
   }
 });
 
+// GET /events/active - Alias for /current (merged from drills: returns active event user is in)
+// Semantics: drills had "active drill for group"; events use "current event user has joined" - same concept
+router.get('/active', authenticateToken, async (req, res) => {
+  try {
+    const professionalId = req.user.professional_id;
+
+    const result = await pool.query(
+      `SELECT e.*, p.current_camp_id, p.current_event_id
+       FROM professionals p
+       LEFT JOIN events e ON p.current_event_id = e.event_id
+       WHERE p.professional_id = $1`,
+      [professionalId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active event found'
+      });
+    }
+
+    const row = result.rows[0];
+
+    if (!row.current_event_id || !row.event_id) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active event found'
+      });
+    }
+
+    const event = row;
+    const response = {
+      success: true,
+      event: {
+        event_id: event.event_id,
+        name: event.name,
+        location: event.location,
+        status: event.status,
+        start_time: event.start_time,
+        finish_time: event.finish_time,
+        ...(req.user.role === 'Commander' && event.invite_code && { invite_code: event.invite_code })
+      }
+    };
+
+    res.json(response);
+  } catch (error) {
+    console.error('Get active event error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch active event',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // GET /events/current - MUST come before /:eventId to avoid route conflict
 router.get('/current', authenticateToken, async (req, res) => {
   try {
@@ -157,6 +212,124 @@ router.get('/current', authenticateToken, async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to retrieve current event',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /events/start - Start current event (Commander only; drills allowed any user)
+// Transitions event from 'upcoming' to 'in_progress'. Uses Commander's current_event_id.
+router.post('/start', authenticateToken, requireCommander, async (req, res) => {
+  try {
+    const professionalId = req.user.professional_id;
+
+    const currentResult = await pool.query(
+      `SELECT p.current_event_id, e.event_id, e.name, e.status
+       FROM professionals p
+       LEFT JOIN events e ON p.current_event_id = e.event_id
+       WHERE p.professional_id = $1`,
+      [professionalId]
+    );
+
+    if (currentResult.rows.length === 0 || !currentResult.rows[0].current_event_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'You are not part of any event. Create or join an event first.'
+      });
+    }
+
+    const { current_event_id, status } = currentResult.rows[0];
+
+    if (status === 'in_progress') {
+      return res.status(400).json({
+        success: false,
+        message: 'Event is already in progress'
+      });
+    }
+
+    if (status !== 'upcoming') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot start event with status '${status}'. Only 'upcoming' events can be started.`
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE events SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP
+       WHERE event_id = $1 RETURNING *`,
+      [current_event_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Event started successfully',
+      event: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Start event error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to start event',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /events/stop - Stop current event (Commander only; drills allowed any user)
+// Transitions event from 'in_progress' to 'finished'.
+router.post('/stop', authenticateToken, requireCommander, async (req, res) => {
+  try {
+    const professionalId = req.user.professional_id;
+
+    const currentResult = await pool.query(
+      `SELECT p.current_event_id, e.event_id, e.name, e.status
+       FROM professionals p
+       LEFT JOIN events e ON p.current_event_id = e.event_id
+       WHERE p.professional_id = $1`,
+      [professionalId]
+    );
+
+    if (currentResult.rows.length === 0 || !currentResult.rows[0].current_event_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'You are not part of any event'
+      });
+    }
+
+    const { current_event_id, status } = currentResult.rows[0];
+
+    if (status !== 'in_progress') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot stop event with status '${status}'. Only 'in_progress' events can be stopped.`
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE events
+       SET status = 'finished', finish_time = COALESCE(finish_time, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+       WHERE event_id = $1 RETURNING *`,
+      [current_event_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Event stopped successfully',
+      event: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Stop event error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to stop event',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
