@@ -384,62 +384,62 @@ export const casualtyAPI = {
 // drill endpoints (proxied to events - see DRILLS_EVENTS_MERGE.md for compatibility notes)
 // Note: Events require Commander role for create/update/delete/start/stop; drills did not.
 
-export const drillAPI = {
-  // GET /events/active - returns { event } (drill clients: use response.event, not response.drill)
-  getActiveDrill: async () => {
-    return await apiRequest('/events/active');
-  },
+// export const drillAPI = {
+//   // GET /events/active - returns { event } (drill clients: use response.event, not response.drill)
+//   getActiveDrill: async () => {
+//     return await apiRequest('/events/active');
+//   },
 
-  // POST /events/create - Commander only. Drills allowed any user to save drafts.
-  saveDrill: async (data) => {
-    const eventData = {
-      name: data.drillName ?? data.name,
-      location: data.location ?? null,
-      start_time: data.date ?? data.drill_date ?? data.start_time,
-    };
-    return await apiRequest('/events/create', {
-      method: 'POST',
-      body: JSON.stringify(eventData),
-    });
-  },
+//   // POST /events/create - Commander only. Drills allowed any user to save drafts.
+//   saveDrill: async (data) => {
+//     const eventData = {
+//       name: data.drillName ?? data.name,
+//       location: data.location ?? null,
+//       start_time: data.date ?? data.drill_date ?? data.start_time,
+//     };
+//     return await apiRequest('/events/create', {
+//       method: 'POST',
+//       body: JSON.stringify(eventData),
+//     });
+//   },
 
-  // POST /events/start - Commander only. Drills allowed any user.
-  startDrill: async () => {
-    return await apiRequest('/events/start', {
-      method: 'POST',
-    });
-  },
+//   // POST /events/start - Commander only. Drills allowed any user.
+//   startDrill: async () => {
+//     return await apiRequest('/events/start', {
+//       method: 'POST',
+//     });
+//   },
 
-  // POST /events/stop - Commander only. Drills allowed any user.
-  stopDrill: async () => {
-    return await apiRequest('/events/stop', {
-      method: 'POST',
-    });
-  },
+//   // POST /events/stop - Commander only. Drills allowed any user.
+//   stopDrill: async () => {
+//     return await apiRequest('/events/stop', {
+//       method: 'POST',
+//     });
+//   },
 
-  // PUT /events/update/:eventId - Commander only.
-  updateDrill: async (id, data) => {
-    const updates = {};
-    if (data.drillName !== undefined || data.name !== undefined) {
-      updates.name = data.drillName ?? data.name;
-    }
-    if (data.location !== undefined) updates.location = data.location;
-    if (data.date !== undefined || data.drill_date !== undefined || data.start_time !== undefined) {
-      updates.start_time = data.date ?? data.drill_date ?? data.start_time;
-    }
-    return await apiRequest(`/events/update/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
-  },
+//   // PUT /events/update/:eventId - Commander only.
+//   updateDrill: async (id, data) => {
+//     const updates = {};
+//     if (data.drillName !== undefined || data.name !== undefined) {
+//       updates.name = data.drillName ?? data.name;
+//     }
+//     if (data.location !== undefined) updates.location = data.location;
+//     if (data.date !== undefined || data.drill_date !== undefined || data.start_time !== undefined) {
+//       updates.start_time = data.date ?? data.drill_date ?? data.start_time;
+//     }
+//     return await apiRequest(`/events/update/${id}`, {
+//       method: 'PUT',
+//       body: JSON.stringify(updates),
+//     });
+//   },
 
-  // DELETE /events/delete/:eventId - Commander only.
-  deactivateDrill: async (id) => {
-    return await apiRequest(`/events/delete/${id}`, {
-      method: 'DELETE',
-    });
-  },
-};
+//   // DELETE /events/delete/:eventId - Commander only.
+//   deactivateDrill: async (id) => {
+//     return await apiRequest(`/events/delete/${id}`, {
+//       method: 'DELETE',
+//     });
+//   },
+// };
 
 // task endpoints
 

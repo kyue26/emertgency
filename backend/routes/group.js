@@ -467,8 +467,18 @@ router.put('/update/:groupId', authenticateToken, idempotencyMiddleware, require
   }
 });
 
+const updateGroupValidators = [
+  param('groupId').notEmpty().trim(),
+  body('group_name').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
+  body('groupName').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
+  body('lead_professional_id').optional().trim(),
+  body('leadProfessionalId').optional().trim(),
+  body('max_members').optional().isInt({ min: 1, max: 50 }),
+  body('maxMembers').optional().isInt({ min: 1, max: 50 })
+];
+
 // PUT /groups/:groupId - REST-style update (same as /update/:groupId)
-router.put('/:groupId', authenticateToken, requireCommanderOrLead, updateGroupValidators, async (req, res) => {
+router.put('/:groupId', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, updateGroupValidators, async (req, res) => {
   const client = await pool.connect();
   try {
     const errors = validationResult(req);
