@@ -166,6 +166,46 @@ const commanderApi = {
     });
     return normalizeProfessional(data);
   },
+
+  // Event endpoints (Commander-only: create, manage, invite code)
+  async createEvent(eventData) {
+    return request('/event/create', {
+      method: 'POST',
+      body: JSON.stringify(eventData),
+    });
+  },
+
+  async getCurrentEvent() {
+    return request('/event/current', { method: 'GET' });
+  },
+
+  async getActiveEvent() {
+    try {
+      return await request('/event/active', { method: 'GET' });
+    } catch (e) {
+      if (e.status === 404) return null;
+      throw e;
+    }
+  },
+
+  async updateEvent(eventId, updates) {
+    return request(`/event/update/${eventId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async startEvent() {
+    return request('/event/start', { method: 'POST' });
+  },
+
+  async stopEvent() {
+    return request('/event/stop', { method: 'POST' });
+  },
+
+  async getInviteCode(eventId) {
+    return request(`/event/${eventId}/invite-code`, { method: 'GET' });
+  },
 };
 
 function normalizeProfessional(row) {

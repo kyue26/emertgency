@@ -63,6 +63,8 @@ export const getStoredUser = async () => {
   }
 };
 
+const REQUEST_TIMEOUT_MS = 15000;
+
 // main API request function
 const apiRequest = async (endpoint, options = {}) => {
   const token = await getStoredToken();
@@ -82,7 +84,14 @@ const apiRequest = async (endpoint, options = {}) => {
   };
 
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...config,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
     const data = await response.json();
 
     if (!response.ok) {
@@ -95,6 +104,11 @@ const apiRequest = async (endpoint, options = {}) => {
 
     return data;
   } catch (error) {
+    if (error.name === 'AbortError') {
+      const timeoutErr = new Error('Request timed out. Check that the backend is running and reachable.');
+      timeoutErr.name = 'AbortError';
+      throw timeoutErr;
+    }
     console.error(`API Error (${endpoint}):`, error);
     throw error;
   }

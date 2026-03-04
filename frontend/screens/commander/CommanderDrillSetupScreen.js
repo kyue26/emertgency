@@ -13,8 +13,11 @@ import { Feather } from "@expo/vector-icons";
 import { Dropdown } from "react-native-element-dropdown";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, spacing, shadows, radius } from "../../styles/CommanderTheme";
 import commanderApi, { getCommanderUser } from "../../services/commanderApi";
+
+const ROLE_STORAGE_PREFIX = "@emertgency:role_assignments:";
 
 const ROLE_KEYS = [
   "command",
@@ -40,16 +43,6 @@ const ROLE_LABELS = {
 
 const AnimatedSection = Animated.createAnimatedComponent(View);
 
-// First MERT member in list = incident commander. Fallback: first Commander, then first in list.
-function getIncidentCommanderName(professionals) {
-  if (!professionals?.length) return null;
-  const mert = professionals.find((p) => (p.role || "").toLowerCase().includes("mert"));
-  if (mert) return mert.name;
-  const cmd = professionals.find((p) => (p.role || "").toLowerCase() === "commander");
-  if (cmd) return cmd.name;
-  return professionals[0]?.name || null;
-}
-
 export default function CommanderDrillSetupScreen() {
   const [drillInfo, setDrillInfo] = useState({
     drillName: "",
@@ -66,54 +59,81 @@ export default function CommanderDrillSetupScreen() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const [isDrillActive, setIsDrillActive] = useState(false);
+  const [currentEvent, setCurrentEvent] = useState(null);
 
-  const incidentCommanderName = getIncidentCommanderName(professionals);
+  // Incident Commander = whoever is assigned to "command". First person to save becomes IC unless they assign someone else.
+  const incidentCommanderName = roleAssignments.command || null;
+
+  const isIncidentCommander = currentUser?.name === incidentCommanderName;
+  const isFirstPerson = !currentEvent; // No event yet = first person setting up
+  const myAssignedRole = ROLE_KEYS.find((k) => (roleAssignments[k] || "").trim() === (currentUser?.name || "").trim());
+
+  // Which roles this user can see and edit
+  const visibleRoleKeys = (() => {
+    if (isFirstPerson) return ["command"]; // First person only sees Command
+    if (isIncidentCommander) return ROLE_KEYS; // IC sees all
+    if (myAssignedRole) return [myAssignedRole]; // Assigned member sees only their role
+    return []; // Normal member with no role sees nothing
+  })();
 
   const canAssignRole = useCallback(
     (roleKey) => {
       const assigned = roleAssignments[roleKey] || "";
       const currentName = currentUser?.name || "";
-      if (!assigned) {
-        return currentName === incidentCommanderName;
-      }
-      return assigned === currentName;
+      if (isFirstPerson && roleKey === "command") return true; // First person can assign Command
+      if (isIncidentCommander) return true; // IC can assign any role
+      if (assigned === currentName) return true; // Assigned person can transfer their own role
+      return false;
     },
-    [roleAssignments, currentUser?.name, incidentCommanderName]
+    [roleAssignments, currentUser?.name, isFirstPerson, isIncidentCommander]
   );
+
+  const persistRoleAssignments = useCallback(async (eventId, assignments) => {
+    if (!eventId) return;
+    try {
+      await AsyncStorage.setItem(ROLE_STORAGE_PREFIX + eventId, JSON.stringify(assignments));
+    } catch (e) {
+      console.warn("Failed to persist role assignments:", e);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [data, profs, user] = await Promise.all([
-        commanderApi.getActiveDrill(),
+      const [eventRes, profs, user] = await Promise.all([
+        commanderApi.getCurrentEvent().catch(() => ({ success: false, event: null })),
         commanderApi.getProfessionals(),
         getCommanderUser(),
       ]);
       setProfessionals(Array.isArray(profs) ? profs : []);
       setCurrentUser(user);
 
-      if (data) {
-        setIsDrillActive(data.status === "active" || !!data.is_active);
+      const event = eventRes?.event || eventRes?.data?.event || null;
+      setCurrentEvent(event);
+
+      if (event) {
+        setIsDrillActive(event.status === "in_progress");
         setDrillInfo({
-          drillName: data.drill_name || data.drillName || "",
-          location: data.location || "",
-          date: data.drill_date
-            ? new Date(data.drill_date).toISOString().split("T")[0]
+          drillName: event.name || "",
+          location: event.location || "",
+          date: event.start_time
+            ? new Date(event.start_time).toISOString().split("T")[0]
             : new Date().toISOString().split("T")[0],
         });
-        const profList = Array.isArray(profs) ? profs : [];
-        const icName = getIncidentCommanderName(profList);
-        let assignments = { ...data.role_assignments };
-        if (!assignments.command && icName) {
-          assignments.command = icName;
-        }
-        setRoleAssignments(assignments);
+        try {
+          const stored = await AsyncStorage.getItem(ROLE_STORAGE_PREFIX + event.event_id);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const merged = ROLE_KEYS.reduce((a, k) => ({ ...a, [k]: parsed[k] || "" }), {});
+            setRoleAssignments(merged);
+          }
+        } catch (_) {}
       } else {
         setIsDrillActive(false);
       }
     } catch (e) {
-      console.warn("Load drill error:", e);
+      console.warn("Load drill/event error:", e);
     } finally {
       setLoading(false);
     }
@@ -126,92 +146,102 @@ export default function CommanderDrillSetupScreen() {
   );
 
   const handleSave = async () => {
+    if (!drillInfo.drillName.trim()) {
+      setError("Event name is required.");
+      return;
+    }
     setSaving(true);
     setError(null);
     setSuccess(false);
     try {
-      await commanderApi.createOrUpdateDrill({
-        drillName: drillInfo.drillName,
-        location: drillInfo.location,
-        date: drillInfo.date,
-        roleAssignments,
-      });
+      // First person to save = Incident Commander unless they assigned command to someone else
+      const assignments = { ...roleAssignments };
+      if (!assignments.command?.trim() && currentUser?.name) {
+        assignments.command = currentUser.name;
+        setRoleAssignments(assignments);
+      }
+
+      const updates = {
+        name: drillInfo.drillName.trim(),
+        location: drillInfo.location?.trim() || undefined,
+        start_time: drillInfo.date ? new Date(drillInfo.date).toISOString() : undefined,
+      };
+      let event;
+      if (currentEvent?.event_id) {
+        const res = await commanderApi.updateEvent(currentEvent.event_id, updates);
+        event = res?.event || { ...currentEvent, ...updates };
+        setCurrentEvent(event);
+      } else {
+        const res = await commanderApi.createEvent(updates);
+        event = res?.event || res;
+        setCurrentEvent(event);
+      }
+      if (event?.event_id) {
+        await persistRoleAssignments(event.event_id, assignments);
+      }
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
+      await load();
     } catch (e) {
-      setError(e.message || "Failed to save drill setup");
+      setError(e.message || "Failed to save event");
     } finally {
       setSaving(false);
     }
   };
 
   const handleStartDrill = async () => {
+    if (!currentEvent) {
+      setError("Create an event first, then start it.");
+      return;
+    }
     setSaving(true);
     setError(null);
     setSuccess(false);
     try {
-      const assignments = { ...roleAssignments };
-      if (!assignments.command && incidentCommanderName) {
-        assignments.command = incidentCommanderName;
-      }
-      await commanderApi.startDrill({
-        drillName: drillInfo.drillName,
-        location: drillInfo.location,
-        date: drillInfo.date,
-        roleAssignments: assignments,
-      });
-      setRoleAssignments(assignments);
+      await commanderApi.startEvent();
       setIsDrillActive(true);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
+      await load();
     } catch (e) {
-      setError(e.message || "Failed to start drill");
+      setError(e.message || "Failed to start event");
     } finally {
       setSaving(false);
     }
   };
 
   const handleRoleChange = useCallback(
-    async (roleKey, value) => {
+    (roleKey, value) => {
       const next = { ...roleAssignments, [roleKey]: value || "" };
       setRoleAssignments(next);
-      if (isDrillActive) {
-        try {
-          await commanderApi.createOrUpdateDrill({
-            drillName: drillInfo.drillName,
-            location: drillInfo.location,
-            date: drillInfo.date,
-            roleAssignments: next,
-          });
-        } catch (e) {
-          console.warn("Auto-save role change failed:", e);
-          setRoleAssignments(roleAssignments);
-        }
+      if (currentEvent?.event_id) {
+        persistRoleAssignments(currentEvent.event_id, next);
       }
     },
-    [roleAssignments, isDrillActive, drillInfo]
+    [roleAssignments, currentEvent?.event_id, persistRoleAssignments]
   );
 
   const handleStopDrill = () => {
     Alert.alert(
-      "Stop Drill",
-      "Are you sure you want to stop the drill? This will end the current active drill session.",
+      "Stop Event",
+      "Are you sure you want to stop the event? This will end the current active event.",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Stop Drill",
+          text: "Stop Event",
           style: "destructive",
           onPress: async () => {
             setSaving(true);
             setError(null);
             setSuccess(false);
             try {
-              await commanderApi.stopDrill();
+              await commanderApi.stopEvent();
               setIsDrillActive(false);
               setSuccess(true);
               setTimeout(() => setSuccess(false), 3000);
+              await load();
             } catch (e) {
-              setError(e.message || "Failed to stop drill");
+              setError(e.message || "Failed to stop event");
             } finally {
               setSaving(false);
             }
@@ -253,11 +283,60 @@ export default function CommanderDrillSetupScreen() {
       {isDrillActive && (
         <View style={styles.activeBanner}>
           <Feather name="radio" size={20} color="#fff" />
-          <Text style={styles.activeBannerText}>Drill is active — Transport officers can start their 5‑minute tracking timer from the Officer Checklist.</Text>
+          <Text style={styles.activeBannerText}>Event is active — Transport officers can start their 5‑minute tracking timer from the Officer Checklist.</Text>
         </View>
       )}
 
+      {/* Event & Invite Code - Commander creates event and shares code with members */}
       <AnimatedSection entering={FadeInDown.duration(400).delay(0)} style={styles.card}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.cardIconWrap, { backgroundColor: colors.green }]}>
+            <Feather name="key" size={22} color="#fff" />
+          </View>
+          <View style={styles.cardTitleWrap}>
+            <Text style={styles.cardTitle}>Event & Invite Code</Text>
+            <Text style={styles.cardSubtitle}>
+              Create an event and share the invite code so members can join
+            </Text>
+          </View>
+        </View>
+        <View style={styles.cardBody}>
+          {currentEvent ? (
+            <>
+              <View style={{ marginBottom: spacing.md }}>
+                <Text style={styles.inputLabel}>Current event</Text>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text }}>
+                  {currentEvent.name || "—"}
+                </Text>
+                <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: 4 }}>
+                  Status: {currentEvent.status === "in_progress" ? "Active" : currentEvent.status || "—"}
+                </Text>
+              </View>
+              {currentEvent.invite_code && (
+                <View style={{
+                  backgroundColor: "#F0F9FF",
+                  borderWidth: 2,
+                  borderColor: colors.pennBlue,
+                  borderRadius: radius.md,
+                  padding: spacing.md,
+                  marginBottom: spacing.md,
+                }}>
+                  <Text style={[styles.inputLabel, { marginBottom: 4 }]}>Invite code — share with members</Text>
+                  <Text style={{ fontSize: 24, fontWeight: "700", color: colors.pennBlue, letterSpacing: 4 }}>
+                    {currentEvent.invite_code}
+                  </Text>
+                </View>
+              )}
+            </>
+          ) : (
+            <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: spacing.md }}>
+              No event yet. Fill in the drill info below and tap "Save setup" to create an event and get an invite code.
+            </Text>
+          )}
+        </View>
+      </AnimatedSection>
+
+      <AnimatedSection entering={FadeInDown.duration(400).delay(80)} style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardIconWrap}>
             <Feather name="info" size={22} color="#fff" />
@@ -303,47 +382,56 @@ export default function CommanderDrillSetupScreen() {
           <View style={styles.cardTitleWrap}>
             <Text style={styles.cardTitle}>Role assignments</Text>
             <Text style={styles.cardSubtitle}>
-              Assign names to each role; they'll appear in checklists. Changes auto-save during an active drill.
+              {isFirstPerson
+                ? "Assign yourself or someone else as Incident Commander, then save and start the drill."
+                : isIncidentCommander
+                  ? "Assign names to each role. Only the Incident Commander can assign unassigned roles."
+                  : myAssignedRole
+                    ? "You can transfer your assigned role to someone else."
+                    : "You have no role assignment. Only the Incident Commander can assign roles."}
             </Text>
           </View>
         </View>
         <View style={styles.cardBody}>
-          <Text style={styles.roleHint}>
-            Incident Commander (first MERT member) can assign empty roles. Only the assigned person can transfer a role.
-          </Text>
-          <View style={styles.roleGrid}>
-            {ROLE_KEYS.map((key) => {
-              const editable = canAssignRole(key);
-              const dropdownData = [
-                { label: "— Unassigned", value: "" },
-                ...professionals.map((p) => ({ label: p.name || p.email || "?", value: p.name || "" })),
-              ];
-              return (
-                <View key={key} style={styles.roleCell}>
-                  <Text style={styles.roleLabel}>{ROLE_LABELS[key]}</Text>
-                  {editable ? (
-                    <Dropdown
-                      style={styles.roleDropdown}
-                      data={dropdownData}
-                      labelField="label"
-                      valueField="value"
-                      placeholder={`Select ${ROLE_LABELS[key]}`}
-                      value={roleAssignments[key] || ""}
-                      onChange={(item) => handleRoleChange(key, item.value || "")}
-                      placeholderStyle={styles.dropdownPlaceholder}
-                      selectedTextStyle={styles.dropdownSelected}
-                    />
-                  ) : (
-                    <View style={styles.roleReadOnly}>
-                      <Text style={styles.roleReadOnlyText}>
-                        {roleAssignments[key] || "— Unassigned"}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-          </View>
+          {visibleRoleKeys.length === 0 ? (
+            <Text style={styles.roleHint}>
+              No role assignments visible. Join the event and wait for the Incident Commander to assign you a role.
+            </Text>
+          ) : (
+            <View style={styles.roleGrid}>
+              {visibleRoleKeys.map((key) => {
+                const editable = canAssignRole(key);
+                const dropdownData = [
+                  { label: "— Unassigned", value: "" },
+                  ...professionals.map((p) => ({ label: p.name || p.email || "?", value: p.name || "" })),
+                ];
+                return (
+                  <View key={key} style={styles.roleCell}>
+                    <Text style={styles.roleLabel}>{ROLE_LABELS[key]}</Text>
+                    {editable ? (
+                      <Dropdown
+                        style={styles.roleDropdown}
+                        data={dropdownData}
+                        labelField="label"
+                        valueField="value"
+                        placeholder={`Select ${ROLE_LABELS[key]}`}
+                        value={roleAssignments[key] || ""}
+                        onChange={(item) => handleRoleChange(key, item.value || "")}
+                        placeholderStyle={styles.dropdownPlaceholder}
+                        selectedTextStyle={styles.dropdownSelected}
+                      />
+                    ) : (
+                      <View style={styles.roleReadOnly}>
+                        <Text style={styles.roleReadOnlyText}>
+                          {roleAssignments[key] || "— Unassigned"}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
       </AnimatedSection>
 

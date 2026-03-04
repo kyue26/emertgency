@@ -13,7 +13,7 @@ import {
 import { Feather } from "@expo/vector-icons";
 import landingStyles from "../styles/LandingScreenStyles";
 import { authAPI } from "../services/api";
-import commanderApi from "../services/commanderApi";
+import commanderApi, { setCommanderAuth } from "../services/commanderApi";
 
 // 'member' | 'commander' | null (null = show role selection)
 export default function LandingScreen({ onAuthSuccess }) {
@@ -75,16 +75,26 @@ export default function LandingScreen({ onAuthSuccess }) {
       let response;
       if (selectedRole === "commander") {
         if (isSignUp) {
-          setError("Commander sign-up is not available here. Please log in.");
-          setLoading(false);
-          return;
+          response = await authAPI.register(
+            name.trim(),
+            email.trim(),
+            password,
+            phoneNumber ? phoneNumber.trim() : undefined,
+            "Commander"
+          );
+          if (response.success && response.token) {
+            await setCommanderAuth(response.token, response.user);
+            onAuthSuccess("commander");
+            return;
+          }
+        } else {
+          response = await commanderApi.login(email.trim(), password);
+          if (response && response.token) {
+            onAuthSuccess("commander");
+            return;
+          }
         }
-        response = await commanderApi.login(email.trim(), password);
-        if (response && response.token) {
-          onAuthSuccess("commander");
-          return;
-        }
-        response = { success: false };
+        response = response || { success: false };
       } else {
         if (isSignUp) {
           response = await authAPI.register(
@@ -235,9 +245,9 @@ export default function LandingScreen({ onAuthSuccess }) {
           <Text style={[styles.logoText, landingStyles.gency]}>gency</Text>
         </View>
         <Text style={styles.roleLabel}>
-          {selectedRole === "commander" ? "Commander" : "Member"} sign in
+          {selectedRole === "commander" ? "Commander" : "Member"} {isSignUp ? "sign up" : "sign in"}
         </Text>
-        {selectedRole === "commander" && (
+        {selectedRole === "commander" && !isSignUp && (
           <Text style={styles.demoHint}>Demo: commander@test.com / commander123</Text>
         )}
       </View>
@@ -334,19 +344,17 @@ export default function LandingScreen({ onAuthSuccess }) {
         )}
       </TouchableOpacity>
 
-      {/* Toggle Between Login / Signup (Members only; Commander is login-only) */}
-      {selectedRole === "member" && (
-        <TouchableOpacity onPress={() => {
-          setIsSignUp(!isSignUp);
-          setError("");
-        }}>
-          <Text style={styles.switchText}>
-            {isSignUp
-              ? "Already have an account? Log in"
-              : "Don't have an account? Sign up"}
-          </Text>
-        </TouchableOpacity>
-      )}
+      {/* Toggle Between Login / Signup */}
+      <TouchableOpacity onPress={() => {
+        setIsSignUp(!isSignUp);
+        setError("");
+      }}>
+        <Text style={styles.switchText}>
+          {isSignUp
+            ? "Already have an account? Log in"
+            : "Don't have an account? Sign up"}
+        </Text>
+      </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   );
