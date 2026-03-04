@@ -156,7 +156,8 @@ const commanderApi = {
 
   async getProfessional(id) {
     const data = await request(`/professionals/${id}`, { method: 'GET' });
-    return normalizeProfessional(data);
+    const row = data.professional ?? data;
+    return normalizeProfessional(row);
   },
 
   async updateProfessional(id, body) {
@@ -164,7 +165,17 @@ const commanderApi = {
       method: 'PUT',
       body: JSON.stringify(body),
     });
-    return normalizeProfessional(data);
+    const row = data.professional ?? data;
+    return normalizeProfessional(row);
+  },
+
+  /** Register new user (Commander flow) – calls backend POST /auth/register */
+  async registerUser(name, email, password, phone_number, role) {
+    const data = await request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password, phone_number, role }),
+    });
+    return data;
   },
 
   // Event endpoints (Commander-only: create, manage, invite code)
@@ -217,6 +228,7 @@ function normalizeProfessional(row) {
     phoneNumber: row.phone_number ?? row.phoneNumber,
     role: row.role,
     groupId: row.group_id ?? row.groupId,
+    currentEventId: row.current_event_id ?? row.currentEventId,
     currentCampId: row.current_camp_id ?? row.currentCampId,
     createdAt: row.created_at ?? row.createdAt,
     updatedAt: row.updated_at ?? row.updatedAt,

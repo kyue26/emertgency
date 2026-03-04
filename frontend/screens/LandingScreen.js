@@ -1,15 +1,16 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   ScrollView,
+  Keyboard,
 } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import landingStyles from "../styles/LandingScreenStyles";
 import { authAPI } from "../services/api";
@@ -26,6 +27,18 @@ export default function LandingScreen({ onAuthSuccess }) {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const subShow = Keyboard.addListener(showEvent, (e) => setKeyboardHeight(e.endCoordinates?.height ?? 0));
+    const subHide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
 
   const handleAuth = async () => {
     setError("");
@@ -173,12 +186,17 @@ export default function LandingScreen({ onAuthSuccess }) {
       } else if (error.message) {
         errorMessage = error.message;
       }
-      // Network failure: show helpful hint for Commander (device can't reach localhost)
+      // Server 500 / "Login failed" usually means database not connected
+      const isServerError = error.status === 500 || (error.message || "").includes("Login failed") || (error.message || "").includes("Registration failed");
+      if (isServerError) {
+        errorMessage = "Server error. Check that PostgreSQL is running and the backend database is set up. Look at the backend terminal for the exact error.";
+      }
+      // Network failure: show helpful hint for device (can't reach localhost)
       const isNetworkError = (error.message || "").includes("Network request failed") || (error.message || "").includes("Failed to fetch");
       if (!isSignUp && isNetworkError && selectedRole === "commander") {
-        errorMessage = "Can't reach commander server. On a device, set EXPO_PUBLIC_COMMANDER_API_URL=http://YOUR_IP:5010/api in frontend/.env and restart Expo.";
-      } else if (!isSignUp && isNetworkError) {
-        errorMessage = "Can't reach server. On a device, set EXPO_PUBLIC_API_URL (and restart Expo).";
+        errorMessage = "Can't reach server. On a device, set EXPO_PUBLIC_COMMANDER_API_URL=http://YOUR_IP:3000 in frontend/.env and restart Expo.";
+      } else if (isNetworkError) {
+        errorMessage = "Can't reach server. On a device, set EXPO_PUBLIC_API_URL=http://YOUR_IP:3000 in frontend/.env and restart Expo.";
       } else if (!isSignUp && !errorMessage) {
         errorMessage = "Invalid credentials";
       }
@@ -188,10 +206,10 @@ export default function LandingScreen({ onAuthSuccess }) {
     }
   };
 
-  // Step 1: Role selection
+  // Step 1: Role selection (one fade when this "page" appears, e.g. after tapping Back)
   if (selectedRole === null) {
     return (
-      <View style={styles.container}>
+      <Animated.View entering={FadeIn.duration(280)} style={styles.container}>
         <View style={landingStyles.logoSection}>
           <View style={[landingStyles.brand, { flexDirection: "row" }]}>
             <Text style={[styles.logoText, landingStyles.e]}>e</Text>
@@ -218,116 +236,120 @@ export default function LandingScreen({ onAuthSuccess }) {
           <Text style={styles.roleButtonText}>Member</Text>
           <Text style={styles.roleButtonSubtext}>Field & team flow</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     );
   }
 
+  // Step 2: Sign-in/sign-up form (one fade when this "page" appears after tapping Commander/Member)
+  // Single View wrapper; we only add bottom padding when keyboard is open so no component swap = focus stays
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <TouchableOpacity
-        style={styles.backToRole}
-        onPress={() => {
-          setSelectedRole(null);
-          setError("");
-        }}
-      >
-        <Feather name="arrow-left" size={22} color="#011F5B" />
-        <Text style={styles.backToRoleText}>Back to role selection</Text>
-      </TouchableOpacity>
-
-      <View style={landingStyles.logoSection}>
-        <View style={[landingStyles.brand, { flexDirection: "row" }]}>
-          <Text style={[styles.logoText, landingStyles.e]}>e</Text>
-          <Text style={[styles.logoText, landingStyles.mert]}>MERT</Text>
-          <Text style={[styles.logoText, landingStyles.gency]}>gency</Text>
-        </View>
-        <Text style={styles.roleLabel}>
-          {selectedRole === "commander" ? "Commander" : "Member"} {isSignUp ? "sign up" : "sign in"}
-        </Text>
-        {selectedRole === "commander" && !isSignUp && (
-          <Text style={styles.demoHint}>Demo: commander@test.com / commander123</Text>
-        )}
-      </View>
-
-      {error ? (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      ) : null}
-
-      <ScrollView
-        style={styles.formScroll}
-        contentContainerStyle={styles.formScrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-      <View style={styles.inputContainer}>
-        {isSignUp && (
-        <TextInput
-          style={styles.input}
-          placeholder="Name"
-          placeholderTextColor="#D9E1F2"
-          value={name}
-          onChangeText={(text) => {
-            setName(text);
+    <Animated.View entering={FadeIn.duration(280)} style={styles.container}>
+      <View style={styles.container}>
+        <TouchableOpacity
+          style={styles.backToRole}
+          onPress={() => {
+            setSelectedRole(null);
             setError("");
           }}
-          autoCapitalize="words"
-        />
-        )}
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor="#D9E1F2"
-          value={email}
-          onChangeText={(text) => {
-            setEmail(text);
-            setError("");
-          }}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
-        {isSignUp && (
-          <TextInput
-            style={styles.input}
-            placeholder="Phone Number (Optional)"
-            placeholderTextColor="#D9E1F2"
-            value={phoneNumber}
-            onChangeText={(text) => {
-              setPhoneNumber(text);
-              setError("");
-            }}
-            keyboardType="phone-pad"
-          />
-        )}
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor="#D9E1F2"
-          secureTextEntry
-          value={password}
-          onChangeText={(text) => {
-            setPassword(text);
-            setError("");
-          }}
-        />
-        {isSignUp && (
-          <TextInput
-            style={styles.input}
-            placeholder="Confirm Password"
-            placeholderTextColor="#D9E1F2"
-            secureTextEntry
-            value={confirmPassword}
-            onChangeText={(text) => {
-              setConfirmPassword(text);
-              setError("");
-            }}
-          />
-        )}
-      </View>
+        >
+          <Feather name="arrow-left" size={22} color="#011F5B" />
+          <Text style={styles.backToRoleText}>Back to role selection</Text>
+        </TouchableOpacity>
+
+        <ScrollView
+          style={styles.formScroll}
+          contentContainerStyle={
+            keyboardHeight > 0
+              ? { paddingBottom: 40 + keyboardHeight }
+              : [styles.formScrollContent, styles.formScrollContentCentered]
+          }
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={landingStyles.logoSection}>
+            <View style={[landingStyles.brand, { flexDirection: "row" }]}>
+              <Text style={[styles.logoText, landingStyles.e]}>e</Text>
+              <Text style={[styles.logoText, landingStyles.mert]}>MERT</Text>
+              <Text style={[styles.logoText, landingStyles.gency]}>gency</Text>
+            </View>
+            <Text style={styles.roleLabel}>
+              {selectedRole === "commander" ? "Commander" : "Member"} {isSignUp ? "sign up" : "sign in"}
+            </Text>
+            {selectedRole === "commander" && !isSignUp && (
+              <Text style={styles.demoHint}>Demo: commander@test.com / commander123</Text>
+            )}
+          </View>
+
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.inputContainer}>
+            {isSignUp && (
+              <TextInput
+                style={styles.input}
+                placeholder="Name"
+                placeholderTextColor="#D9E1F2"
+                value={name}
+                onChangeText={(text) => {
+                  setName(text);
+                  setError("");
+                }}
+                autoCapitalize="words"
+              />
+            )}
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor="#D9E1F2"
+              value={email}
+              onChangeText={(text) => {
+                setEmail(text);
+                setError("");
+              }}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+            {isSignUp && (
+              <TextInput
+                style={styles.input}
+                placeholder="Phone Number (Optional)"
+                placeholderTextColor="#D9E1F2"
+                value={phoneNumber}
+                onChangeText={(text) => {
+                  setPhoneNumber(text);
+                  setError("");
+                }}
+                keyboardType="phone-pad"
+              />
+            )}
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor="#D9E1F2"
+              secureTextEntry
+              value={password}
+              onChangeText={(text) => {
+                setPassword(text);
+                setError("");
+              }}
+            />
+            {isSignUp && (
+              <TextInput
+                style={styles.input}
+                placeholder="Confirm Password"
+                placeholderTextColor="#D9E1F2"
+                secureTextEntry
+                value={confirmPassword}
+                onChangeText={(text) => {
+                  setConfirmPassword(text);
+                  setError("");
+                }}
+              />
+            )}
+          </View>
 
       {/* Auth Button */}
       <TouchableOpacity 
@@ -344,26 +366,28 @@ export default function LandingScreen({ onAuthSuccess }) {
         )}
       </TouchableOpacity>
 
-      {/* Toggle Between Login / Signup */}
-      <TouchableOpacity onPress={() => {
-        setIsSignUp(!isSignUp);
-        setError("");
-      }}>
-        <Text style={styles.switchText}>
-          {isSignUp
-            ? "Already have an account? Log in"
-            : "Don't have an account? Sign up"}
-        </Text>
-      </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          <TouchableOpacity
+            onPress={() => {
+              setIsSignUp(!isSignUp);
+              setError("");
+            }}
+          >
+            <Text style={styles.switchText}>
+              {isSignUp
+                ? "Already have an account? Log in"
+                : "Don't have an account? Sign up"}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#B5C8E8", // soft blue background
+    backgroundColor: "#B5C8E8",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 30,
@@ -469,7 +493,7 @@ const styles = StyleSheet.create({
   },
   backToRole: {
     position: "absolute",
-    top: 52,
+    top: 80,
     left: 20,
     flexDirection: "row",
     alignItems: "center",
@@ -490,4 +514,8 @@ const styles = StyleSheet.create({
   },
   formScroll: { flex: 1, width: "100%" },
   formScrollContent: { paddingBottom: 40 },
+  formScrollContentCentered: {
+    flexGrow: 1,
+    justifyContent: "center",
+  },
 });
