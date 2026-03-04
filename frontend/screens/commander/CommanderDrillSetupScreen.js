@@ -58,6 +58,7 @@ export default function CommanderDrillSetupScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
   const [isDrillActive, setIsDrillActive] = useState(false);
   const [currentEvent, setCurrentEvent] = useState(null);
 
@@ -109,8 +110,7 @@ export default function CommanderDrillSetupScreen() {
       setProfessionals(Array.isArray(profs) ? profs : []);
       setCurrentUser(user);
 
-      const event = eventRes?.event || eventRes?.data?.event || null;
-      setCurrentEvent(event);
+      let event = eventRes?.event || eventRes?.data?.event || null;
 
       if (event) {
         setIsDrillActive(event.status === "in_progress");
@@ -121,6 +121,14 @@ export default function CommanderDrillSetupScreen() {
             ? new Date(event.start_time).toISOString().split("T")[0]
             : new Date().toISOString().split("T")[0],
         });
+        if (!event.invite_code && event.event_id) {
+          try {
+            const codeRes = await commanderApi.getInviteCode(event.event_id);
+            const code = codeRes?.event?.invite_code || codeRes?.invite_code;
+            if (code) event = { ...event, invite_code: code };
+          } catch (_) {}
+        }
+        setCurrentEvent(event);
         try {
           const stored = await AsyncStorage.getItem(ROLE_STORAGE_PREFIX + event.event_id);
           if (stored) {
@@ -131,6 +139,7 @@ export default function CommanderDrillSetupScreen() {
         } catch (_) {}
       } else {
         setIsDrillActive(false);
+        setCurrentEvent(null);
       }
     } catch (e) {
       console.warn("Load drill/event error:", e);
@@ -166,21 +175,25 @@ export default function CommanderDrillSetupScreen() {
         location: drillInfo.location?.trim() || undefined,
         start_time: drillInfo.date ? new Date(drillInfo.date).toISOString() : undefined,
       };
+      const isFinishedOrCancelled = currentEvent?.status === "finished" || currentEvent?.status === "cancelled";
+      const shouldCreate = !currentEvent?.event_id || isFinishedOrCancelled;
       let event;
-      if (currentEvent?.event_id) {
-        const res = await commanderApi.updateEvent(currentEvent.event_id, updates);
-        event = res?.event || { ...currentEvent, ...updates };
-        setCurrentEvent(event);
-      } else {
+      if (shouldCreate) {
         const res = await commanderApi.createEvent(updates);
         event = res?.event || res;
+        setCurrentEvent(event);
+      } else {
+        const res = await commanderApi.updateEvent(currentEvent.event_id, updates);
+        event = res?.event || { ...currentEvent, ...updates };
         setCurrentEvent(event);
       }
       if (event?.event_id) {
         await persistRoleAssignments(event.event_id, assignments);
+        commanderApi.putChecklistData(event.event_id, { roleAssignments: assignments }).catch(() => {});
       }
+      setSuccessMessage("Setup saved. Invite code appears below.");
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => { setSuccess(false); setSuccessMessage(""); }, 3000);
       await load();
     } catch (e) {
       setError(e.message || "Failed to save event");
@@ -200,8 +213,9 @@ export default function CommanderDrillSetupScreen() {
     try {
       await commanderApi.startEvent();
       setIsDrillActive(true);
+      setSuccessMessage("Drill started successfully.");
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => { setSuccess(false); setSuccessMessage(""); }, 3000);
       await load();
     } catch (e) {
       setError(e.message || "Failed to start event");
@@ -216,6 +230,7 @@ export default function CommanderDrillSetupScreen() {
       setRoleAssignments(next);
       if (currentEvent?.event_id) {
         persistRoleAssignments(currentEvent.event_id, next);
+        commanderApi.putChecklistData(currentEvent.event_id, { roleAssignments: next }).catch(() => {});
       }
     },
     [roleAssignments, currentEvent?.event_id, persistRoleAssignments]
@@ -237,8 +252,9 @@ export default function CommanderDrillSetupScreen() {
             try {
               await commanderApi.stopEvent();
               setIsDrillActive(false);
+              setSuccessMessage("Drill stopped successfully.");
               setSuccess(true);
-              setTimeout(() => setSuccess(false), 3000);
+              setTimeout(() => { setSuccess(false); setSuccessMessage(""); }, 3000);
               await load();
             } catch (e) {
               setError(e.message || "Failed to stop event");
@@ -275,7 +291,7 @@ export default function CommanderDrillSetupScreen() {
         <AnimatedSection entering={FadeInDown.duration(300)} style={styles.successBox}>
           <Feather name="check-circle" size={20} color={colors.green} />
           <Text style={styles.successText}>
-            {isDrillActive ? "Drill started successfully." : "Drill stopped successfully."}
+            {successMessage || "Done."}
           </Text>
         </AnimatedSection>
       ) : null}
@@ -283,7 +299,7 @@ export default function CommanderDrillSetupScreen() {
       {isDrillActive && (
         <View style={styles.activeBanner}>
           <Feather name="radio" size={20} color="#fff" />
-          <Text style={styles.activeBannerText}>Event is active — Transport officers can start their 5‑minute tracking timer from the Officer Checklist.</Text>
+          <Text style={styles.activeBannerText}>Event is active — Treatment officers can start their 5‑minute tracking timer from the Officer Checklist.</Text>
         </View>
       )}
 

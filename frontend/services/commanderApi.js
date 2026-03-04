@@ -101,8 +101,9 @@ const commanderApi = {
     return data.user || data;
   },
 
-  async getCasualtyStatistics() {
-    const data = await request('/casualties/statistics', { method: 'GET' });
+  async getCasualtyStatistics(eventId = null) {
+    const qs = eventId ? `?event_id=${encodeURIComponent(eventId)}` : '';
+    const data = await request(`/casualties/statistics${qs}`, { method: 'GET' });
     return data.data || data;
   },
 
@@ -216,6 +217,19 @@ const commanderApi = {
 
   async getInviteCode(eventId) {
     return request(`/event/${eventId}/invite-code`, { method: 'GET' });
+  },
+
+  async getChecklistData(eventId) {
+    const data = await request(`/event/${eventId}/checklist-data`, { method: 'GET' });
+    return data.data || data;
+  },
+
+  async putChecklistData(eventId, payload) {
+    const data = await request(`/event/${eventId}/checklist-data`, {
+      method: 'PUT',
+      body: JSON.stringify({ payload }),
+    });
+    return data.data || data;
   },
 };
 

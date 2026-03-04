@@ -10,8 +10,50 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, spacing, shadows } from "../../styles/CommanderTheme";
 import commanderApi from "../../services/commanderApi";
+
+/** Convert Officer Checklist treatment counts to dashboard stats format */
+function countsToStats(treatmentTarpCounts, transportEntries, deceasedCount) {
+  const sum = (color) =>
+    ["priority1", "priority2", "priority3", "dead"].reduce(
+      (s, k) => s + (treatmentTarpCounts?.[color]?.[k]?.count ?? 0),
+      0
+    );
+  const p1 = transportEntries?.priority1?.length ?? 0;
+  const p2 = transportEntries?.priority2?.length ?? 0;
+  const p3 = transportEntries?.priority3?.length ?? 0;
+  const redTotal = sum("red");
+  const yellowTotal = sum("yellow");
+  const greenTotal = sum("green");
+  const deadInTarps =
+    (treatmentTarpCounts?.red?.dead?.count ?? 0) +
+    (treatmentTarpCounts?.yellow?.dead?.count ?? 0) +
+    (treatmentTarpCounts?.green?.dead?.count ?? 0);
+  return {
+    red: {
+      total: redTotal,
+      transported: p1,
+      in_treatment: Math.max(0, redTotal - p1),
+    },
+    yellow: {
+      total: yellowTotal,
+      transported: p2,
+      in_treatment: Math.max(0, yellowTotal - p2),
+    },
+    green: {
+      total: greenTotal,
+      transported: p3,
+      in_treatment: Math.max(0, greenTotal - p3),
+    },
+    black: {
+      total: (deceasedCount ?? 0) + deadInTarps,
+      transported: 0,
+      in_treatment: 0,
+    },
+  };
+}
 
 const PRIORITY_CONFIG = [
   { key: "red", label: "Priority 1", bg: colors.redBg, border: colors.red, text: colors.red },
@@ -22,17 +64,45 @@ const PRIORITY_CONFIG = [
 
 export default function CommanderDashboardScreen() {
   const [stats, setStats] = useState(null);
+  const [checklistData, setChecklistData] = useState(null);
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [statsData, resourcesData] = await Promise.all([
+      const [eventRes, statsData, resourcesData] = await Promise.all([
+        commanderApi.getCurrentEvent().catch(() => ({ success: false, event: null })),
         commanderApi.getCasualtyStatistics().catch(() => null),
         commanderApi.getResourceRequests().catch(() => []),
       ]);
-      setStats(statsData || { red: {}, yellow: {}, green: {}, black: {} });
+      const event = eventRes?.event || eventRes?.data?.event || null;
+      const eventId = event?.event_id;
+
+      let priorityStats = statsData || { red: {}, yellow: {}, green: {}, black: {} };
+      let checklistData = null;
+      if (eventId) {
+        try {
+          checklistData = await commanderApi.getChecklistData(eventId);
+        } catch (_) {
+          try {
+            const stored = await AsyncStorage.getItem("@emertgency:treatment_counts:" + eventId);
+            checklistData = stored ? JSON.parse(stored) : null;
+          } catch (_) {}
+        }
+        if (checklistData) {
+          priorityStats = countsToStats(
+            checklistData.treatmentTarpCounts,
+            checklistData.transportEntries,
+            checklistData.deceasedCount
+          );
+        }
+      } else {
+        checklistData = null;
+      }
+
+      setStats(priorityStats);
+      setChecklistData(checklistData);
       setResources(Array.isArray(resourcesData) ? resourcesData : []);
     } catch (e) {
       console.warn("Commander dashboard load error:", e);
@@ -108,15 +178,43 @@ export default function CommanderDashboardScreen() {
         </View>
         <View style={styles.stagingGrid}>
           {[
-            { icon: "map-pin", title: "Staging established", sub: "Location / Time: —" },
-            { icon: "check-circle", title: "EMTs start arriving", sub: "Time: —" },
-            { icon: "users", title: "All EMTs checked in", sub: "Time: —" },
-            { icon: "users", title: "All EMTs checked out", sub: "Time: —" },
-            { icon: "truck", title: "Treatment location", sub: "Time requested: —" },
-            { icon: "map-pin", title: "Transport location", sub: "Time requested: —" },
+            {
+              icon: "map-pin",
+              title: "Staging established",
+              sub: [checklistData?.locationDetails?.stagingLocation, checklistData?.locationDetails?.stagingTime].filter(Boolean).join(" / ") || "—",
+              done: checklistData?.stagingRadioChecks?.[1],
+            },
+            {
+              icon: "check-circle",
+              title: "EMTs start arriving",
+              sub: checklistData?.stagingRadioChecks?.[2] ? "Done" : "—",
+              done: checklistData?.stagingRadioChecks?.[2],
+            },
+            {
+              icon: "users",
+              title: "All EMTs checked in",
+              sub: checklistData?.stagingRadioChecks?.[3] ? "Done" : "—",
+              done: checklistData?.stagingRadioChecks?.[3],
+            },
+            {
+              icon: "users",
+              title: "All EMTs checked out",
+              sub: checklistData?.stagingRadioChecks?.[4] ? "Done" : "—",
+              done: checklistData?.stagingRadioChecks?.[4],
+            },
+            {
+              icon: "truck",
+              title: "Treatment location",
+              sub: [checklistData?.locationDetails?.treatmentLocation, checklistData?.locationDetails?.treatmentTime].filter(Boolean).join(" / ") || "—",
+            },
+            {
+              icon: "map-pin",
+              title: "Transport location",
+              sub: [checklistData?.locationDetails?.transportLocation, checklistData?.locationDetails?.transportTime].filter(Boolean).join(" / ") || "—",
+            },
           ].map((item, i) => (
-            <View key={i} style={styles.stagingCard}>
-              <Feather name={item.icon} size={20} color={colors.pennBlue} />
+            <View key={i} style={[styles.stagingCard, item.done && styles.stagingCardDone]}>
+              <Feather name={item.icon} size={20} color={item.done ? colors.green : colors.pennBlue} />
               <Text style={styles.stagingTitle}>{item.title}</Text>
               <Text style={styles.stagingSub}>{item.sub}</Text>
             </View>
@@ -128,24 +226,29 @@ export default function CommanderDashboardScreen() {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitleWhite}>Resource requested</Text>
         </View>
-        {resources.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Feather name="package" size={32} color={colors.textSecondary} />
-            <Text style={styles.emptyText}>No resources requested yet</Text>
-          </View>
-        ) : (
-          resources.map((r) => (
-            <View key={r.resource_request_id || r.id} style={styles.resourceCard}>
-              <Text style={styles.resourceName}>{r.resource_name || r.name}</Text>
+        {(() => {
+          const fromChecklist = checklistData?.resourcesRequested;
+          const list = Array.isArray(fromChecklist) && fromChecklist.length > 0
+            ? fromChecklist.map((r) => ({ name: r.resource, confirmed: r.confirmed, time: r.time }))
+            : resources.map((r) => ({ name: r.resource_name || r.name, confirmed: r.confirmed, time: r.time_of_arrival ? new Date(r.time_of_arrival).toLocaleTimeString() : null }));
+          if (list.length === 0) {
+            return (
+              <View style={styles.emptyBox}>
+                <Feather name="package" size={32} color={colors.textSecondary} />
+                <Text style={styles.emptyText}>No resources requested yet</Text>
+              </View>
+            );
+          }
+          return list.map((r, i) => (
+            <View key={i} style={styles.resourceCard}>
+              <Text style={styles.resourceName}>{r.name}</Text>
               <Text style={[styles.resourceStatus, r.confirmed ? styles.confirmed : styles.pending]}>
                 {r.confirmed ? "Confirmed" : "Pending"}
               </Text>
-              <Text style={styles.resourceTime}>
-                ETA: {r.time_of_arrival ? new Date(r.time_of_arrival).toLocaleTimeString() : "—"}
-              </Text>
+              <Text style={styles.resourceTime}>ETA: {r.time || "—"}</Text>
             </View>
-          ))
-        )}
+          ));
+        })()}
       </Animated.View>
 
       <Animated.View entering={FadeInDown.duration(400).delay(360)} style={styles.section}>
@@ -153,17 +256,23 @@ export default function CommanderDashboardScreen() {
           <Text style={styles.sectionTitleWhite}>Agencies on scene</Text>
         </View>
         <View style={styles.stagingGrid}>
-          {[
-            { name: "Penn Police", color: colors.pennBlue },
-            { name: "PFD", color: colors.red },
-            { name: "Allied", color: colors.green },
-          ].map((a) => (
-            <View key={a.name} style={styles.stagingCard}>
-              <Feather name="shield" size={20} color={a.color} />
-              <Text style={styles.stagingTitle}>{a.name}</Text>
-              <Text style={styles.stagingSub}>Time of arrival: —</Text>
-            </View>
-          ))}
+          {(() => {
+            const fromChecklist = checklistData?.agenciesOnScene?.filter((a) => (a.agency || "").trim());
+            const agencies = fromChecklist?.length
+              ? fromChecklist.map((a, i) => ({ name: a.agency, time: a.time, color: [colors.pennBlue, colors.red, colors.green][i % 3] }))
+              : [
+                  { name: "Penn Police", time: null, color: colors.pennBlue },
+                  { name: "PFD", time: null, color: colors.red },
+                  { name: "Allied", time: null, color: colors.green },
+                ];
+            return agencies.map((a, i) => (
+              <View key={i} style={styles.stagingCard}>
+                <Feather name="shield" size={20} color={a.color} />
+                <Text style={styles.stagingTitle}>{a.name}</Text>
+                <Text style={styles.stagingSub}>Time of arrival: {a.time || "—"}</Text>
+              </View>
+            ));
+          })()}
         </View>
       </Animated.View>
     </ScrollView>
@@ -215,6 +324,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  stagingCardDone: {
+    borderColor: colors.green,
+    backgroundColor: colors.greenBg || "#F0FDF4",
   },
   stagingTitle: { fontSize: 14, fontWeight: "600", color: colors.text, marginTop: 6 },
   stagingSub: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
