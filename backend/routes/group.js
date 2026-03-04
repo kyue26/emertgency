@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authenticateToken } = require('../config/auth');
+const { idempotencyMiddleware } = require('../config/idempotency');
 
 const router = express.Router();
 
@@ -40,12 +41,24 @@ const requireCommanderOrLead = async (req, res, next) => {
 router.get('/', authenticateToken, [
   query('page').optional().isInt({ min: 1 }).toInt(),
   query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
-  query('include_members').optional().isBoolean().toBoolean()
+  query('include_members').optional().isBoolean().toBoolean(),
+  query('view').optional().isIn(['membership'])
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    // Optional: return all groups from group_membership_view (no pagination)
+    if (req.query.view === 'membership') {
+      const result = await pool.query(
+        'SELECT * FROM group_membership_view ORDER BY group_name'
+      );
+      return res.json({
+        success: true,
+        groups: result.rows
+      });
     }
 
     const { page = 1, limit = 20, include_members = false } = req.query;
@@ -121,7 +134,8 @@ router.get('/', authenticateToken, [
 
 // GET /groups/:groupId
 router.get('/:groupId', authenticateToken, [
-  param('groupId').notEmpty().trim()
+  param('groupId').notEmpty().trim(),
+  query('view').optional().isIn(['membership'])
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -130,6 +144,20 @@ router.get('/:groupId', authenticateToken, [
     }
 
     const { groupId } = req.params;
+
+    if (req.query.view === 'membership') {
+      const result = await pool.query(
+        'SELECT * FROM group_membership_view WHERE group_id = $1',
+        [groupId]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Group not found' });
+      }
+      return res.json({
+        success: true,
+        group: result.rows[0]
+      });
+    }
 
     const result = await pool.query(
       `SELECT g.*,
@@ -173,13 +201,13 @@ router.get('/:groupId', authenticateToken, [
 });
 
 // POST /groups/register
-router.post('/register', authenticateToken, [
+router.post('/register', authenticateToken, idempotencyMiddleware, [
   body('group_name').notEmpty().trim().isLength({ min: 2, max: 100 }),
   body('lead_professional_id').optional().trim(),
   body('max_members').optional().isInt({ min: 1, max: 50 })
 ], async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -278,15 +306,18 @@ router.post('/register', authenticateToken, [
   }
 });
 
-// PUT /groups/update/:groupId
-router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, [
+// PUT /groups/update/:groupId - Accepts snake_case or camelCase (group_name/groupName, etc.)
+router.put('/update/:groupId', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, [
   param('groupId').notEmpty().trim(),
   body('group_name').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
+  body('groupName').optional().notEmpty().trim().isLength({ min: 2, max: 100 }),
   body('lead_professional_id').optional().trim(),
-  body('max_members').optional().isInt({ min: 1, max: 50 })
+  body('leadProfessionalId').optional().trim(),
+  body('max_members').optional().isInt({ min: 1, max: 50 }),
+  body('maxMembers').optional().isInt({ min: 1, max: 50 })
 ], async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -294,7 +325,9 @@ router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, [
     }
 
     const { groupId } = req.params;
-    const { group_name, lead_professional_id, max_members } = req.body;
+    const group_name = req.body.group_name ?? req.body.groupName;
+    const lead_professional_id = req.body.lead_professional_id ?? req.body.leadProfessionalId;
+    const max_members = req.body.max_members ?? req.body.maxMembers;
 
     await client.query('BEGIN');
 
@@ -440,7 +473,7 @@ router.put('/update/:groupId', authenticateToken, requireCommanderOrLead, [
 });
 
 // POST /groups/:groupId/members/add
-router.post('/:groupId/members/add', authenticateToken, requireCommanderOrLead, [
+router.post('/:groupId/members/add', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, [
   param('groupId').notEmpty().trim(),
   body('professional_id').notEmpty().trim()
 ], async (req, res) => {
@@ -537,7 +570,7 @@ router.post('/:groupId/members/add', authenticateToken, requireCommanderOrLead, 
 });
 
 // DELETE /groups/:groupId/members/remove/:professionalId
-router.delete('/:groupId/members/remove/:professionalId', authenticateToken, requireCommanderOrLead, [
+router.delete('/:groupId/members/remove/:professionalId', authenticateToken, idempotencyMiddleware, requireCommanderOrLead, [
   param('groupId').notEmpty().trim(),
   param('professionalId').notEmpty().trim()
 ], async (req, res) => {
@@ -627,7 +660,7 @@ router.delete('/:groupId/members/remove/:professionalId', authenticateToken, req
 });
 
 // DELETE /groups/delete/:groupId
-router.delete('/delete/:groupId', authenticateToken, [
+router.delete('/delete/:groupId', authenticateToken, idempotencyMiddleware, [
   param('groupId').notEmpty().trim(),
   query('force').optional().isBoolean().toBoolean()
 ], async (req, res) => {
@@ -688,19 +721,11 @@ router.delete('/delete/:groupId', authenticateToken, [
       );
     }
 
+    // Delete audit logs referencing this group (FK constraint)
+    await client.query('DELETE FROM group_audit_log WHERE group_id = $1', [groupId]);
+
     // Delete group
     await client.query('DELETE FROM groups WHERE group_id = $1', [groupId]);
-
-    // Log deletion
-    await client.query(
-      `INSERT INTO group_audit_log (group_id, action, performed_by, details, created_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
-      [groupId, 'deleted', req.user.professional_id, JSON.stringify({ 
-        group_name: group.group_name,
-        force,
-        members_removed: memberCount 
-      })]
-    );
 
     await client.query('COMMIT');
 

@@ -2,41 +2,27 @@ const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authenticateToken } = require('../config/auth');
+const { createResource, updateResource, confirmResource } = require('../services/resources.service');
+const { idempotencyMiddleware } = require('../config/idempotency');
 
 const router = express.Router();
 
-// Check if user has access to the event
+// Check if event exists (no camp constraint - any authenticated user can access)
 const checkEventAccess = async (req, res, next) => {
   try {
-    const eventId = req.body.event_id || req.query.event_id || req.params.eventId;
+    const eventId = req.body.event_id || req.body.eventId || req.query.event_id || req.params.eventId;
     if (!eventId) return next();
 
     const result = await pool.query(
-      `SELECT e.event_id, e.status,
-              EXISTS(
-                SELECT 1 FROM professionals p
-                JOIN camps c ON p.current_camp_id = c.camp_id
-                WHERE c.event_id = e.event_id AND p.professional_id = $1
-              ) as has_access
-       FROM events e WHERE e.event_id = $2`,
-      [req.user.professional_id, eventId]
+      'SELECT event_id, status FROM events WHERE event_id = $1',
+      [eventId]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Event not found' });
     }
 
-    const event = result.rows[0];
-
-    // Commanders can access any event, others need to be assigned
-    if (req.user.role !== 'Commander' && !event.has_access) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have access to this event'
-      });
-    }
-
-    req.event = event;
+    req.event = result.rows[0];
     next();
   } catch (error) {
     console.error('Event access check error:', error.message);
@@ -78,17 +64,6 @@ router.get('/', authenticateToken, [
     const conditions = ['1=1'];
     const params = [];
     let paramCount = 1;
-
-    // Filter by events user has access to (unless Commander)
-    if (req.user.role !== 'Commander') {
-      conditions.push(`EXISTS(
-        SELECT 1 FROM camps c
-        JOIN professionals p ON p.current_camp_id = c.camp_id
-        WHERE c.event_id = rr.event_id
-        AND p.professional_id = $${paramCount++}
-      )`);
-      params.push(req.user.professional_id);
-    }
 
     if (event_id) {
       conditions.push(`rr.event_id = $${paramCount++}`);
@@ -163,6 +138,42 @@ router.get('/', authenticateToken, [
   }
 });
 
+// GET /resources/event/:eventId - Get resource requests for a specific event (must be before /:resourceRequestId)
+router.get('/event/:eventId', authenticateToken, [
+  param('eventId').notEmpty().trim()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { eventId } = req.params;
+
+    const result = await pool.query(
+      `SELECT rr.*,
+              p_req.name as requested_by_name
+       FROM resource_requests rr
+       LEFT JOIN professionals p_req ON rr.requested_by = p_req.professional_id
+       WHERE rr.event_id = $1
+       ORDER BY rr.created_at DESC`,
+      [eventId]
+    );
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Get resource requests for event error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch resource requests for event',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // GET /resources/:resourceRequestId - Get single resource request
 router.get('/:resourceRequestId', authenticateToken, [
   param('resourceRequestId').notEmpty().trim()
@@ -219,112 +230,35 @@ router.get('/:resourceRequestId', authenticateToken, [
   }
 });
 
-// POST /resources/create - Create new resource request
-router.post('/create', authenticateToken, checkEventAccess, [
-  body('event_id').notEmpty().trim(),
+// POST /resources/create - Create new resource request (uses service layer, idempotency)
+router.post('/create', authenticateToken, idempotencyMiddleware, checkEventAccess, [
+  body('event_id').optional().trim(),
+  body('eventId').optional().trim(),
   body('resource_name').notEmpty().trim().isLength({ min: 2, max: 255 }),
   body('quantity').optional().isInt({ min: 1, max: 10000 }),
   body('priority').optional().isIn(['low', 'medium', 'high', 'critical']),
   body('time_of_arrival').optional().isISO8601().toDate(),
   body('notes').optional().trim().isLength({ max: 1000 })
 ], async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-
-    const {
-      event_id,
-      resource_name,
-      quantity,
-      priority,
-      time_of_arrival,
-      notes
-    } = req.body;
-
-    await client.query('BEGIN');
-
-    // Verify event exists and is active
-    const eventCheck = await client.query(
-      'SELECT event_id, status FROM events WHERE event_id = $1',
-      [event_id]
-    );
-
-    if (eventCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Event not found' });
-    }
-
-    if (eventCheck.rows[0].status === 'finished' || eventCheck.rows[0].status === 'cancelled') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot create resource requests for finished or cancelled events'
-      });
-    }
-
-    const resource_request_id = `res_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const result = await client.query(
-      `INSERT INTO resource_requests
-       (resource_request_id, event_id, resource_name, quantity, priority, 
-        time_of_arrival, notes, requested_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-       RETURNING *`,
-      [
-        resource_request_id,
-        event_id,
-        resource_name,
-        quantity || 1,
-        priority || 'medium',
-        time_of_arrival || null,
-        notes || null,
-        req.user.professional_id
-      ]
-    );
-
-    // Log creation
-    await logResourceChange(
-      client,
-      resource_request_id,
-      req.user.professional_id,
-      'created',
-      { resource_name, quantity: quantity || 1, priority: priority || 'medium' }
-    );
-
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      success: true,
-      message: 'Resource request created successfully',
-      resourceRequest: result.rows[0]
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Create resource request error:', error.message);
-
-    if (error.code === '23503') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid event_id'
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create resource request',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    client.release();
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
   }
+
+  const body = {
+    ...req.body,
+    event_id: req.body.event_id || req.body.eventId
+  };
+  if (!body.event_id) {
+    return res.status(400).json({ success: false, message: 'event_id or eventId is required' });
+  }
+
+  const result = await createResource(body, req.user, pool);
+  return res.status(result.status).json(result.body);
 });
 
 // PUT /resources/update/:resourceRequestId - Update resource request
-router.put('/update/:resourceRequestId', authenticateToken, [
+router.put('/update/:resourceRequestId', authenticateToken, idempotencyMiddleware, [
   param('resourceRequestId').notEmpty().trim(),
   body('resource_name').optional().notEmpty().trim().isLength({ min: 2, max: 255 }),
   body('quantity').optional().isInt({ min: 1, max: 10000 }),
@@ -332,230 +266,32 @@ router.put('/update/:resourceRequestId', authenticateToken, [
   body('time_of_arrival').optional().isISO8601().toDate(),
   body('notes').optional().trim().isLength({ max: 1000 })
 ], async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-
-    const { resourceRequestId } = req.params;
-    const { resource_name, quantity, priority, time_of_arrival, notes } = req.body;
-
-    await client.query('BEGIN');
-
-    // Get current state
-    const currentState = await client.query(
-      `SELECT rr.*, e.status as event_status
-       FROM resource_requests rr
-       JOIN events e ON rr.event_id = e.event_id
-       WHERE rr.resource_request_id = $1`,
-      [resourceRequestId]
-    );
-
-    if (currentState.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Resource request not found' });
-    }
-
-    const resourceRequest = currentState.rows[0];
-
-    // Check access rights
-    if (req.user.role !== 'Commander' && resourceRequest.requested_by !== req.user.professional_id) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({
-        success: false,
-        message: 'You can only modify your own resource requests'
-      });
-    }
-
-    // Prevent modification of requests in finished events
-    if (resourceRequest.event_status === 'finished' || resourceRequest.event_status === 'cancelled') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot modify resource requests in finished or cancelled events'
-      });
-    }
-
-    // Build update query
-    const updates = [];
-    const values = [];
-    const changes = {};
-    let paramCount = 1;
-
-    if (resource_name && resource_name !== resourceRequest.resource_name) {
-      updates.push(`resource_name = $${paramCount++}`);
-      values.push(resource_name);
-      changes.resource_name = { from: resourceRequest.resource_name, to: resource_name };
-    }
-    if (quantity !== undefined && quantity !== resourceRequest.quantity) {
-      updates.push(`quantity = $${paramCount++}`);
-      values.push(quantity);
-      changes.quantity = { from: resourceRequest.quantity, to: quantity };
-    }
-    if (priority && priority !== resourceRequest.priority) {
-      updates.push(`priority = $${paramCount++}`);
-      values.push(priority);
-      changes.priority = { from: resourceRequest.priority, to: priority };
-    }
-    if (time_of_arrival !== undefined) {
-      updates.push(`time_of_arrival = $${paramCount++}`);
-      values.push(time_of_arrival || null);
-      changes.time_of_arrival = { from: resourceRequest.time_of_arrival, to: time_of_arrival };
-    }
-    if (notes !== undefined && notes !== resourceRequest.notes) {
-      updates.push(`notes = $${paramCount++}`);
-      values.push(notes || null);
-      changes.notes = { from: resourceRequest.notes, to: notes };
-    }
-
-    if (updates.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, message: 'No changes detected' });
-    }
-
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
-    values.push(resourceRequestId);
-
-    const result = await client.query(
-      `UPDATE resource_requests SET ${updates.join(', ')}
-       WHERE resource_request_id = $${paramCount}
-       RETURNING *`,
-      values
-    );
-
-    // Log changes
-    await logResourceChange(
-      client,
-      resourceRequestId,
-      req.user.professional_id,
-      'updated',
-      changes
-    );
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: 'Resource request updated successfully',
-      resourceRequest: result.rows[0],
-      changes: Object.keys(changes)
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Update resource request error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update resource request',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    client.release();
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
   }
+
+  const result = await updateResource(req.params.resourceRequestId, req.body, req.user, pool);
+  return res.status(result.status).json(result.body);
 });
 
 // PUT /resources/confirm/:resourceRequestId - Confirm/unconfirm resource request
-router.put('/confirm/:resourceRequestId', authenticateToken, [
+router.put('/confirm/:resourceRequestId', authenticateToken, idempotencyMiddleware, [
   param('resourceRequestId').notEmpty().trim(),
   body('confirmed').isBoolean(),
   body('time_of_arrival').optional().isISO8601().toDate()
 ], async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-
-    const { resourceRequestId } = req.params;
-    const { confirmed, time_of_arrival } = req.body;
-
-    await client.query('BEGIN');
-
-    // Get current state
-    const currentState = await client.query(
-      `SELECT rr.*, e.status as event_status
-       FROM resource_requests rr
-       JOIN events e ON rr.event_id = e.event_id
-       WHERE rr.resource_request_id = $1`,
-      [resourceRequestId]
-    );
-
-    if (currentState.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Resource request not found' });
-    }
-
-    const resourceRequest = currentState.rows[0];
-
-    // Prevent modification of requests in finished events
-    if (resourceRequest.event_status === 'finished' || resourceRequest.event_status === 'cancelled') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot confirm resource requests in finished or cancelled events'
-      });
-    }
-
-    const updates = ['confirmed = $1', 'updated_at = CURRENT_TIMESTAMP'];
-    const values = [confirmed];
-    let paramCount = 2;
-
-    if (confirmed) {
-      updates.push(`confirmed_by = $${paramCount++}`);
-      values.push(req.user.professional_id);
-      
-      if (time_of_arrival) {
-        updates.push(`time_of_arrival = $${paramCount++}`);
-        values.push(time_of_arrival);
-      }
-    } else {
-      updates.push('confirmed_by = NULL');
-    }
-
-    values.push(resourceRequestId);
-
-    const result = await client.query(
-      `UPDATE resource_requests SET ${updates.join(', ')}
-       WHERE resource_request_id = $${paramCount}
-       RETURNING *`,
-      values
-    );
-
-    // Log confirmation change
-    await logResourceChange(
-      client,
-      resourceRequestId,
-      req.user.professional_id,
-      confirmed ? 'confirmed' : 'unconfirmed',
-      { confirmed, time_of_arrival }
-    );
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: `Resource request ${confirmed ? 'confirmed' : 'unconfirmed'} successfully`,
-      resourceRequest: result.rows[0]
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Confirm resource request error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to confirm resource request',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    client.release();
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
   }
+
+  const result = await confirmResource(req.params.resourceRequestId, req.body, req.user, pool);
+  return res.status(result.status).json(result.body);
 });
 
-// DELETE /resources/delete/:resourceRequestId - Delete resource request
-router.delete('/delete/:resourceRequestId', authenticateToken, [
+// DELETE /resources/delete/:resourceRequestId - Delete resource request (access check, audit log)
+router.delete('/delete/:resourceRequestId', authenticateToken, idempotencyMiddleware, [
   param('resourceRequestId').notEmpty().trim()
 ], async (req, res) => {
   const client = await pool.connect();

@@ -2,6 +2,8 @@ const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
 const pool = require('../config/database');
 const { authenticateToken } = require('../config/auth');
+const { createCasualty, updateCasualtyStatus } = require('../services/casualties.service');
+const { idempotencyMiddleware } = require('../config/idempotency');
 
 const router = express.Router();
 
@@ -161,134 +163,101 @@ router.get('/', authenticateToken, [
   }
 });
 
-// POST /casualties/add
-router.post('/add', authenticateToken, checkEventAccess, [
-  body('event_id').notEmpty().trim(),
+// GET /casualties/statistics - by priority color (must be before /:casualtyId routes)
+router.get('/statistics', authenticateToken, async (req, res) => {
+  try {
+    const eventId = req.query.event_id;
+
+    let sqlQuery = `
+      SELECT 
+        color,
+        COUNT(*) FILTER (WHERE hospital_status IS NULL OR hospital_status = '') as in_treatment,
+        COUNT(*) FILTER (WHERE hospital_status IS NOT NULL AND hospital_status != '') as transported,
+        COUNT(*) as total
+      FROM injured_persons
+    `;
+    const params = [];
+
+    if (eventId) {
+      sqlQuery += ' WHERE event_id = $1';
+      params.push(eventId);
+    }
+
+    sqlQuery += `
+      GROUP BY color
+      ORDER BY 
+        CASE color
+          WHEN 'red' THEN 1
+          WHEN 'yellow' THEN 2
+          WHEN 'green' THEN 3
+          WHEN 'black' THEN 4
+        END
+    `;
+
+    const result = await pool.query(sqlQuery, params);
+
+    const statistics = {
+      red: { color: 'red', in_treatment: 0, transported: 0, total: 0 },
+      yellow: { color: 'yellow', in_treatment: 0, transported: 0, total: 0 },
+      green: { color: 'green', in_treatment: 0, transported: 0, total: 0 },
+      black: { color: 'black', in_treatment: 0, transported: 0, total: 0 }
+    };
+
+    result.rows.forEach(row => {
+      statistics[row.color] = {
+        color: row.color,
+        in_treatment: parseInt(row.in_treatment, 10),
+        transported: parseInt(row.transported, 10),
+        total: parseInt(row.total, 10)
+      };
+    });
+
+    res.json({
+      success: true,
+      data: statistics
+    });
+  } catch (error) {
+    console.error('Casualty statistics error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch casualty statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// POST /casualties - Create (REST-style; accepts eventId, campId, injuredPersonId; idempotent)
+router.post('/', authenticateToken, idempotencyMiddleware, checkEventAccess, [
+  body('event_id').optional().trim(),
+  body('eventId').optional().trim(),
   body('camp_id').optional().trim(),
+  body('campId').optional().trim(),
   body('color').isIn(['green', 'yellow', 'red', 'black']),
   body('breathing').optional().isBoolean(),
   body('conscious').optional().isBoolean(),
   body('bleeding').optional().isBoolean(),
   body('hospital_status').optional().trim().isLength({ max: 255 }),
-  body('other_information').optional().trim().isLength({ max: 1000 })
+  body('hospitalStatus').optional().trim().isLength({ max: 255 }),
+  body('other_information').optional().trim().isLength({ max: 1000 }),
+  body('otherInformation').optional().trim().isLength({ max: 1000 }),
+  body('injured_person_id').optional().trim(),
+  body('injuredPersonId').optional().trim()
 ], async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-
-    const {
-      event_id,
-      camp_id,
-      color,
-      breathing,
-      conscious,
-      bleeding,
-      hospital_status,
-      other_information
-    } = req.body;
-
-    await client.query('BEGIN');
-
-    // Verify event exists and is active
-    const eventCheck = await client.query(
-      'SELECT event_id, status FROM events WHERE event_id = $1',
-      [event_id]
-    );
-
-    if (eventCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Event not found' });
-    }
-
-    if (eventCheck.rows[0].status === 'finished') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot add casualties to finished events'
-      });
-    }
-
-    // Verify camp exists if provided
-    if (camp_id) {
-      const campCheck = await client.query(
-        'SELECT camp_id, event_id FROM camps WHERE camp_id = $1',
-        [camp_id]
-      );
-
-      if (campCheck.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ success: false, message: 'Camp not found' });
-      }
-
-      if (campCheck.rows[0].event_id !== event_id) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          success: false,
-          message: 'Camp does not belong to specified event'
-        });
-      }
-    }
-
-    const injured_person_id = `inj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const result = await client.query(
-      `INSERT INTO injured_persons
-       (injured_person_id, event_id, camp_id, color, breathing, conscious, bleeding,
-        hospital_status, other_information, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
-       RETURNING *`,
-      [
-        injured_person_id, event_id, camp_id, color,
-        breathing ?? null, conscious ?? null, bleeding ?? null,
-        hospital_status || null, other_information || null,
-        req.user.professional_id
-      ]
-    );
-
-    // Log the creation
-    await logCasualtyChange(
-      client,
-      injured_person_id,
-      req.user.professional_id,
-      { action: 'created', ...req.body },
-      null
-    );
-
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      success: true,
-      message: 'Injured person added successfully',
-      casualty: result.rows[0]
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Add casualty error:', error.message);
-
-    // Handle specific errors
-    if (error.code === '23503') { // Foreign key violation
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid event_id or camp_id'
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Failed to add casualty',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    client.release();
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
   }
+
+  const result = await createCasualty(req.body, req.user, pool);
+
+  if (result.status === 409) {
+    return res.status(409).json(result.body);
+  }
+  return res.status(result.status).json(result.body);
 });
 
 // PUT /casualties/update/:casualtyId/status
-router.put('/update/:casualtyId/status', authenticateToken, [
+router.put('/update/:casualtyId/status', authenticateToken, idempotencyMiddleware, [
   param('casualtyId').notEmpty().trim(),
   body('color').optional().isIn(['green', 'yellow', 'red', 'black']),
   body('breathing').optional().isBoolean(),
@@ -335,14 +304,13 @@ router.put('/update/:casualtyId/status', authenticateToken, [
 
     const casualty = currentState.rows[0];
 
-    // Check access: user must be in event (current_event_id) or in a camp in this event
+    // Check access rights
     if (req.user.role !== 'Commander') {
       const accessCheck = await client.query(
         `SELECT 1 FROM professionals p
-         WHERE p.professional_id = $1
-         AND (p.current_event_id = $2
-              OR EXISTS (SELECT 1 FROM camps c WHERE c.camp_id = p.current_camp_id AND c.event_id = $2))`,
-        [req.user.professional_id, casualty.event_id]
+         JOIN camps c ON p.current_camp_id = c.camp_id
+         WHERE c.event_id = $1 AND p.professional_id = $2`,
+        [casualty.event_id, req.user.professional_id]
       );
 
       if (accessCheck.rows.length === 0) {
@@ -481,21 +449,15 @@ router.put('/update/:casualtyId/status', authenticateToken, [
   }
 });
 
-// GET /casualties/:casualtyId/history
-router.get('/:casualtyId/history', authenticateToken, [
+// GET /casualties/:casualtyId/audit - Audit log with professional names
+router.get('/:casualtyId/audit', authenticateToken, [
   param('casualtyId').notEmpty().trim()
 ], async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
-
     const { casualtyId } = req.params;
 
-    // Check if casualty exists and user has access
     const casualtyCheck = await pool.query(
-      `SELECT ip.event_id FROM injured_persons ip WHERE ip.injured_person_id = $1`,
+      'SELECT ip.event_id FROM injured_persons ip WHERE ip.injured_person_id = $1',
       [casualtyId]
     );
 
@@ -503,8 +465,7 @@ router.get('/:casualtyId/history', authenticateToken, [
       return res.status(404).json({ success: false, message: 'Casualty not found' });
     }
 
-    // Get audit log
-    const history = await pool.query(
+    const result = await pool.query(
       `SELECT cal.*, p.name as changed_by_name, p.role as changed_by_role
        FROM casualty_audit_log cal
        LEFT JOIN professionals p ON cal.changed_by = p.professional_id
@@ -515,19 +476,242 @@ router.get('/:casualtyId/history', authenticateToken, [
 
     res.json({
       success: true,
-      history: history.rows
+      audit: result.rows
     });
   } catch (error) {
-    console.error('Get casualty history error:', error.message);
+    console.error('Get casualty audit error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve history'
+      message: 'Failed to retrieve audit'
     });
   }
 });
 
+// GET /casualties/:casualtyId - Get single casualty by ID (REST-style)
+router.get('/:casualtyId', authenticateToken, [
+  param('casualtyId').notEmpty().trim()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { casualtyId } = req.params;
+
+    const result = await pool.query(
+      'SELECT * FROM injured_persons WHERE injured_person_id = $1',
+      [casualtyId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Casualty not found'
+      });
+    }
+
+    // Access check: Commander or in event/camp
+    if (req.user.role !== 'Commander') {
+      const accessCheck = await pool.query(
+        `SELECT 1 FROM professionals p
+         WHERE p.professional_id = $1
+         AND (p.current_event_id = $2
+              OR EXISTS (SELECT 1 FROM camps c WHERE c.camp_id = p.current_camp_id AND c.event_id = $2))`,
+        [req.user.professional_id, result.rows[0].event_id]
+      );
+      if (accessCheck.rows.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have access to this casualty'
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      casualty: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Get casualty error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve casualty',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// PUT /casualties/:casualtyId - REST-style full update (same as /update/:casualtyId/status)
+router.put('/:casualtyId', authenticateToken, [
+  param('casualtyId').notEmpty().trim(),
+  body('color').optional().isIn(['green', 'yellow', 'red', 'black']),
+  body('breathing').optional().isBoolean(),
+  body('conscious').optional().isBoolean(),
+  body('bleeding').optional().isBoolean(),
+  body('hospital_status').optional().trim().isLength({ max: 255 }),
+  body('hospitalStatus').optional().trim().isLength({ max: 255 }),
+  body('other_information').optional().trim().isLength({ max: 1000 }),
+  body('otherInformation').optional().trim().isLength({ max: 1000 }),
+  body('camp_id').optional().trim(),
+  body('campId').optional().trim()
+], async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { casualtyId } = req.params;
+    const color = req.body.color;
+    const breathing = req.body.breathing;
+    const conscious = req.body.conscious;
+    const bleeding = req.body.bleeding;
+    const hospital_status = req.body.hospital_status || req.body.hospitalStatus;
+    const other_information = req.body.other_information || req.body.otherInformation;
+    const camp_id = req.body.camp_id || req.body.campId;
+
+    await client.query('BEGIN');
+
+    const currentState = await client.query(
+      `SELECT ip.*, e.status as event_status
+       FROM injured_persons ip
+       JOIN events e ON ip.event_id = e.event_id
+       WHERE ip.injured_person_id = $1`,
+      [casualtyId]
+    );
+
+    if (currentState.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Casualty not found' });
+    }
+
+    const casualty = currentState.rows[0];
+
+    if (req.user.role !== 'Commander') {
+      const accessCheck = await client.query(
+        `SELECT 1 FROM professionals p
+         WHERE p.professional_id = $1
+         AND (p.current_event_id = $2
+              OR EXISTS (SELECT 1 FROM camps c WHERE c.camp_id = p.current_camp_id AND c.event_id = $2))`,
+        [req.user.professional_id, casualty.event_id]
+      );
+      if (accessCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ success: false, message: 'You do not have access to modify this casualty' });
+      }
+    }
+
+    if (casualty.event_status === 'finished') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'Cannot modify casualties in finished events' });
+    }
+
+    // Verify new camp_id if provided (prevents FK violation). Allow null/empty to clear assignment.
+    if (camp_id !== undefined && camp_id !== casualty.camp_id && camp_id) {
+      const campCheck = await client.query(
+        'SELECT camp_id, event_id FROM camps WHERE camp_id = $1',
+        [camp_id]
+      );
+
+      if (campCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ success: false, message: 'Camp not found' });
+      }
+
+      if (campCheck.rows[0].event_id !== casualty.event_id) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot transfer casualty to camp in different event'
+        });
+      }
+    }
+
+    const updates = [];
+    const values = [];
+    const changes = {};
+    let paramCount = 1;
+
+    if (color !== undefined && color !== casualty.color) {
+      updates.push(`color = $${paramCount++}`);
+      values.push(color);
+      changes.color = { from: casualty.color, to: color };
+    }
+    if (breathing !== undefined && breathing !== casualty.breathing) {
+      updates.push(`breathing = $${paramCount++}`);
+      values.push(breathing);
+      changes.breathing = { from: casualty.breathing, to: breathing };
+    }
+    if (conscious !== undefined && conscious !== casualty.conscious) {
+      updates.push(`conscious = $${paramCount++}`);
+      values.push(conscious);
+      changes.conscious = { from: casualty.conscious, to: conscious };
+    }
+    if (bleeding !== undefined && bleeding !== casualty.bleeding) {
+      updates.push(`bleeding = $${paramCount++}`);
+      values.push(bleeding);
+      changes.bleeding = { from: casualty.bleeding, to: bleeding };
+    }
+    if (hospital_status !== undefined && hospital_status !== casualty.hospital_status) {
+      updates.push(`hospital_status = $${paramCount++}`);
+      values.push(hospital_status || null);
+      changes.hospital_status = { from: casualty.hospital_status, to: hospital_status };
+    }
+    if (other_information !== undefined && other_information !== casualty.other_information) {
+      updates.push(`other_information = $${paramCount++}`);
+      values.push(other_information || null);
+      changes.other_information = { from: casualty.other_information, to: other_information };
+    }
+    if (camp_id !== undefined && camp_id !== casualty.camp_id) {
+      updates.push(`camp_id = $${paramCount++}`);
+      values.push(camp_id || null);
+      changes.camp_id = { from: casualty.camp_id, to: camp_id };
+    }
+
+    if (updates.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'No changes detected' });
+    }
+
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    updates.push(`updated_by = $${paramCount++}`);
+    values.push(req.user.professional_id);
+    values.push(casualtyId);
+
+    const result = await client.query(
+      `UPDATE injured_persons SET ${updates.join(', ')} WHERE injured_person_id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    await logCasualtyChange(client, casualtyId, req.user.professional_id, changes, casualty);
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Casualty updated successfully',
+      casualty: result.rows[0],
+      changes: Object.keys(changes)
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Update casualty error:', error.message);
+    if (error.code === '23503') {
+      return res.status(400).json({ success: false, message: 'Invalid camp_id' });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update casualty',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
+  }
+});
+
 // DELETE /casualties/:casualtyId
-router.delete('/:casualtyId', authenticateToken, [
+router.delete('/:casualtyId', authenticateToken, idempotencyMiddleware, [
   param('casualtyId').notEmpty().trim()
 ], async (req, res) => {
   const client = await pool.connect();
@@ -583,6 +767,16 @@ router.delete('/:casualtyId', authenticateToken, [
       req.user.professional_id,
       { action: 'deleted' },
       casualty
+    );
+
+    // Record in deleted_casualties for delta sync tracking.
+    // This must happen before the DELETE so we still have the event_id.
+    // (casualty_audit_log rows cascade-delete with the injured_person row,
+    //  so they cannot be used to detect deletions in GET /sync.)
+    await client.query(
+      `INSERT INTO deleted_casualties (casualty_id, event_id, deleted_by)
+       VALUES ($1, $2, $3)`,
+      [casualtyId, casualty.event_id, req.user.professional_id]
     );
 
     // Delete the casualty

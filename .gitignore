@@ -1,2 +1,5 @@
-# Ignore the old webapp repo (we use emertgency-backend instead)
+# Ignore the old webapp repo (we use backend instead)
 emertgency-webapp/
+.worktrees/
+emertgency-key.pem
+.DS_Store

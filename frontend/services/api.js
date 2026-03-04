@@ -157,12 +157,33 @@ export const authAPI = {
   logout: async () => {
     await removeToken();
   },
+};
 
-  // GET /auth/professionals
+// professional endpoints (REST-style)
+export const professionalAPI = {
+  // GET /professionals
   getProfessionals: async (params = {}) => {
     const queryString = new URLSearchParams(params).toString();
-    const endpoint = queryString ? `/auth/professionals?${queryString}` : '/auth/professionals';
+    const endpoint = queryString ? `/professionals?${queryString}` : '/professionals';
     return await apiRequest(endpoint);
+  },
+
+  // GET /professionals/:id
+  getProfessional: async (id) => {
+    return await apiRequest(`/professionals/${id}`);
+  },
+
+  // GET /professionals/:id/tasks
+  getProfessionalTasks: async (id) => {
+    return await apiRequest(`/professionals/${id}/tasks`);
+  },
+
+  // PUT /professionals/:id
+  updateProfessional: async (id, data) => {
+    return await apiRequest(`/professionals/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   },
 };
 
@@ -179,6 +200,11 @@ export const eventAPI = {
   // GET /event/:eventId
   getEvent: async (eventId) => {
     return await apiRequest(`/event/${eventId}`);
+  },
+
+  // GET /event/:eventId/statistics
+  getEventStatistics: async (eventId) => {
+    return await apiRequest(`/event/${eventId}/statistics`);
   },
 
   // POST /event/create
@@ -227,10 +253,71 @@ export const eventAPI = {
     return await apiRequest('/event/current');
   },
 
+  // GET /event/active - returns active event (404 if none; same concept as drills /active)
+  getActiveEvent: async () => {
+    return await apiRequest('/event/active');
+  },
+
+  // POST /event/start - Commander only; transitions current event to in_progress
+  startEvent: async () => {
+    return await apiRequest('/event/start', { method: 'POST' });
+  },
+
+  // POST /event/stop - Commander only; transitions current event to finished
+  stopEvent: async () => {
+    return await apiRequest('/event/stop', { method: 'POST' });
+  },
+
   // POST /event/leave
   leaveEvent: async () => {
     return await apiRequest('/event/leave', {
       method: 'POST',
+    });
+  },
+};
+
+// camp endpoints
+
+export const campAPI = {
+  // GET /camps (optional ?eventId filter)
+  getCamps: async (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/camps?${queryString}` : '/camps';
+    return await apiRequest(endpoint);
+  },
+
+  // GET /camps/:id (optional eventId to verify camp belongs to event)
+  getCamp: async (id, eventId = null) => {
+    const query = eventId ? `?eventId=${encodeURIComponent(eventId)}` : '';
+    return await apiRequest(`/camps/${id}${query}`);
+  },
+
+  // POST /camps
+  createCamp: async (campData) => {
+    return await apiRequest('/camps', {
+      method: 'POST',
+      body: JSON.stringify(campData),
+    });
+  },
+
+  // PUT /camps/:id (eventId required in updates or as third param)
+  updateCamp: async (id, updates, eventId = null) => {
+    const body = { ...updates };
+    if (eventId) body.eventId = eventId;
+    return await apiRequest(`/camps/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  },
+
+  // DELETE /camps/:id (eventId required; ?force=true if camp has assignments)
+  deleteCamp: async (id, force = false, eventId = null) => {
+    const params = new URLSearchParams();
+    if (force) params.set('force', 'true');
+    if (eventId) params.set('eventId', eventId);
+    const queryString = params.toString();
+    return await apiRequest(`/camps/${id}${queryString ? `?${queryString}` : ''}`, {
+      method: 'DELETE',
     });
   },
 };
@@ -245,12 +332,30 @@ export const casualtyAPI = {
     return await apiRequest(endpoint);
   },
 
-  // POST /casualties/add
-  addCasualty: async (casualtyData) => {
-    return await apiRequest('/casualties/add', {
+  // GET /casualties/statistics (optional ?event_id for event-scoped stats)
+  getCasualtyStatistics: async (eventId = null) => {
+    const params = eventId ? { event_id: eventId } : {};
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/casualties/statistics?${queryString}` : '/casualties/statistics';
+    return await apiRequest(endpoint);
+  },
+
+  // GET /casualties/:casualtyId - get single casualty (REST-style)
+  getCasualty: async (casualtyId) => {
+    return await apiRequest(`/casualties/${casualtyId}`);
+  },
+
+  // POST /casualties - create (REST-style; accepts eventId, campId, optional injuredPersonId; idempotent)
+  createCasualty: async (casualtyData) => {
+    return await apiRequest('/casualties', {
       method: 'POST',
       body: JSON.stringify(casualtyData),
     });
+  },
+
+  // Alias for createCasualty (POST /casualties)
+  addCasualty: async (casualtyData) => {
+    return casualtyAPI.createCasualty(casualtyData);
   },
 
   // PUT /casualties/update/:casualtyId/status
@@ -268,11 +373,71 @@ export const casualtyAPI = {
     });
   },
 
-  // GET /casualties/:casualtyId/history
-  getCasualtyHistory: async (casualtyId) => {
-    return await apiRequest(`/casualties/${casualtyId}/history`);
+  // GET /casualties/:casualtyId/audit - Audit log with professional names
+  getCasualtyAudit: async (casualtyId) => {
+    return await apiRequest(`/casualties/${casualtyId}/audit`);
   },
 };
+
+// drill endpoints (proxied to events - see DRILLS_EVENTS_MERGE.md for compatibility notes)
+// Note: Events require Commander role for create/update/delete/start/stop; drills did not.
+
+// export const drillAPI = {
+//   // GET /event/active - returns { event } (drill clients: use response.event, not response.drill)
+//   getActiveDrill: async () => {
+//     return await apiRequest('/event/active');
+//   },
+
+//   // POST /event/create - Commander only. Drills allowed any user to save drafts.
+//   saveDrill: async (data) => {
+//     const eventData = {
+//       name: data.drillName ?? data.name,
+//       location: data.location ?? null,
+//       start_time: data.date ?? data.drill_date ?? data.start_time,
+//     };
+//     return await apiRequest('/event/create', {
+//       method: 'POST',
+//       body: JSON.stringify(eventData),
+//     });
+//   },
+
+//   // POST /event/start - Commander only. Drills allowed any user.
+//   startDrill: async () => {
+//     return await apiRequest('/event/start', {
+//       method: 'POST',
+//     });
+//   },
+
+//   // POST /event/stop - Commander only. Drills allowed any user.
+//   stopDrill: async () => {
+//     return await apiRequest('/event/stop', {
+//       method: 'POST',
+//     });
+//   },
+
+//   // PUT /event/update/:eventId - Commander only.
+//   updateDrill: async (id, data) => {
+//     const updates = {};
+//     if (data.drillName !== undefined || data.name !== undefined) {
+//       updates.name = data.drillName ?? data.name;
+//     }
+//     if (data.location !== undefined) updates.location = data.location;
+//     if (data.date !== undefined || data.drill_date !== undefined || data.start_time !== undefined) {
+//       updates.start_time = data.date ?? data.drill_date ?? data.start_time;
+//     }
+//     return await apiRequest(`/event/update/${id}`, {
+//       method: 'PUT',
+//       body: JSON.stringify(updates),
+//     });
+//   },
+
+//   // DELETE /event/delete/:eventId - Commander only.
+//   deactivateDrill: async (id) => {
+//     return await apiRequest(`/event/delete/${id}`, {
+//       method: 'DELETE',
+//     });
+//   },
+// };
 
 // task endpoints
 
@@ -305,9 +470,10 @@ export const taskAPI = {
     });
   },
 
-  // DELETE /tasks/delete/:taskId
-  deleteTask: async (taskId) => {
-    return await apiRequest(`/tasks/delete/${taskId}`, {
+  // DELETE /tasks/:taskId - Soft delete (cancel) by default. Use deleteTask(taskId, true) for permanent.
+  deleteTask: async (taskId, permanent = false) => {
+    const queryString = permanent ? '?permanent=true' : '';
+    return await apiRequest(`/tasks/${taskId}${queryString}`, {
       method: 'DELETE',
     });
   },
@@ -386,15 +552,59 @@ export const shiftAPI = {
 
 // analytics endpoints
 
+// hospital endpoints (CRUD)
+
+export const hospitalAPI = {
+  // GET /hospitals (optional ?isActive=true/false)
+  getHospitals: async (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/hospitals?${queryString}` : '/hospitals';
+    return await apiRequest(endpoint);
+  },
+
+  // GET /hospitals/:id
+  getHospital: async (id) => {
+    return await apiRequest(`/hospitals/${id}`);
+  },
+
+  // POST /hospitals
+  createHospital: async (data) => {
+    return await apiRequest('/hospitals', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // PUT /hospitals/:id
+  updateHospital: async (id, data) => {
+    return await apiRequest(`/hospitals/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // DELETE /hospitals/:id
+  deleteHospital: async (id) => {
+    return await apiRequest(`/hospitals/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 export const analyticsAPI = {
   // GET /locations/active
   getActiveLocations: async () => {
     return await apiRequest('/locations/active');
   },
 
-  // GET /hospitals
-  getHospitals: async () => {
-    return await apiRequest('/hospitals');
+  // GET /hospitals - list of hospitals (from hospitals API)
+  getHospitals: async (params = {}) => {
+    return await hospitalAPI.getHospitals(params);
+  },
+
+  // GET /reports/hospital-transfers - hospitals + transfer statistics
+  getHospitalTransfers: async () => {
+    return await apiRequest('/reports/hospital-transfers');
   },
 
   // GET /reports/summary

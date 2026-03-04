@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../config/database');
-const { authenticateToken } = require('../config/auth');
+const { authenticateToken, authorize } = require('../config/auth');
 
 const router = express.Router();
 
@@ -34,12 +34,11 @@ router.get('/locations/active', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /hospitals
-router.get('/hospitals', authenticateToken, async (req, res) => {
+// GET /reports/hospital-transfers - Hospitals list + transfer statistics (for analytics)
+router.get('/reports/hospital-transfers', authenticateToken, async (req, res) => {
   try {
-    // Get hospital transfer statistics
     const statsResult = await pool.query(`
-      SELECT 
+      SELECT
         hospital_status,
         COUNT(*) as patient_count,
         COUNT(CASE WHEN color = 'red' THEN 1 END) as red_patients,
@@ -51,7 +50,6 @@ router.get('/hospitals', authenticateToken, async (req, res) => {
       ORDER BY patient_count DESC
     `);
 
-    // Fetch hospitals from database (create this table if it doesn't exist)
     const hospitalsResult = await pool.query(`
       SELECT name, distance, trauma_level, capacity, contact_number
       FROM hospitals
@@ -59,7 +57,6 @@ router.get('/hospitals', authenticateToken, async (req, res) => {
       ORDER BY distance
     `);
 
-    // Fallback to hardcoded list if database doesn't have hospitals table yet
     const hospitals = hospitalsResult.rows.length > 0 ? hospitalsResult.rows : [
       { name: 'Hospital of the University of Pennsylvania (HUP)', distance: '0.5 miles', trauma_level: 1 },
       { name: 'Penn Presbyterian Medical Center', distance: '2.3 miles', trauma_level: 1 },
@@ -74,9 +71,9 @@ router.get('/hospitals', authenticateToken, async (req, res) => {
       transferStatistics: statsResult.rows
     });
   } catch (error) {
-    console.error('Get hospitals error:', error);
-    res.status(500).json({ 
-      success: false, 
+    console.error('Get hospital transfers error:', error);
+    res.status(500).json({
+      success: false,
       message: 'Failed to retrieve hospital data',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -88,8 +85,8 @@ router.get('/reports/summary', authenticateToken, async (req, res) => {
   try {
     const { event_id, start_date, end_date } = req.query;
 
-    // Validate inputs
-    if (event_id && isNaN(parseInt(event_id))) {
+    // Validate inputs (event_id is a string like "evt_123_abc", not numeric)
+    if (event_id && (typeof event_id !== 'string' || !event_id.trim())) {
       return res.status(400).json({ 
         success: false, 
         message: 'Invalid event_id parameter' 
