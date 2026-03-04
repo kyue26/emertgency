@@ -61,6 +61,9 @@ export default function CommanderDrillSetupScreen() {
   const [successMessage, setSuccessMessage] = useState("");
   const [isDrillActive, setIsDrillActive] = useState(false);
   const [currentEvent, setCurrentEvent] = useState(null);
+  const [joinInviteCode, setJoinInviteCode] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState(null);
 
   // Incident Commander = whoever is assigned to "command". First person to save becomes IC unless they assign someone else.
   const incidentCommanderName = roleAssignments.command || null;
@@ -224,6 +227,22 @@ export default function CommanderDrillSetupScreen() {
     }
   };
 
+  const handleJoinEvent = async () => {
+    const code = joinInviteCode.trim();
+    if (!code) return;
+    setJoining(true);
+    setJoinError(null);
+    try {
+      await commanderApi.joinEvent(code);
+      setJoinInviteCode("");
+      await load();
+    } catch (e) {
+      setJoinError(e.message || "Failed to join event. Check the invite code.");
+    } finally {
+      setJoining(false);
+    }
+  };
+
   const handleRoleChange = useCallback(
     (roleKey, value) => {
       const next = { ...roleAssignments, [roleKey]: value || "" };
@@ -345,9 +364,36 @@ export default function CommanderDrillSetupScreen() {
               )}
             </>
           ) : (
-            <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: spacing.md }}>
-              No event yet. Fill in the drill info below and tap "Save setup" to create an event and get an invite code.
-            </Text>
+            <>
+              <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: spacing.md }}>
+                Create an event below, or join an existing one with an invite code.
+              </Text>
+              <View style={styles.joinRow}>
+                <TextInput
+                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  placeholder="Invite code"
+                  placeholderTextColor={colors.textSecondary}
+                  value={joinInviteCode}
+                  onChangeText={(t) => { setJoinInviteCode(t); setJoinError(null); }}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity
+                  style={[styles.joinBtn, (!joinInviteCode.trim() || joining) && styles.joinBtnDisabled]}
+                  onPress={handleJoinEvent}
+                  disabled={!joinInviteCode.trim() || joining}
+                >
+                  {joining ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.joinBtnText}>Join</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+              {joinError ? (
+                <Text style={[styles.errorText, { marginTop: spacing.sm }]}>{joinError}</Text>
+              ) : null}
+            </>
           )}
         </View>
       </AnimatedSection>
@@ -595,6 +641,23 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: spacing.sm,
   },
+  joinRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  joinBtn: {
+    backgroundColor: colors.green,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    minWidth: 80,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  joinBtnDisabled: { opacity: 0.5 },
+  joinBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   roleGrid: {
     flexDirection: "row",
     flexWrap: "wrap",

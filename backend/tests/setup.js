@@ -31,4 +31,7 @@ module.exports = async function globalSetup() {
   execSync(`psql "${connStr}" -f "${path.join(backendDir, 'migrations', '002_add_missing_tables.sql')}"`, {
     stdio: 'pipe'
   });
+  execSync(`psql "${connStr}" -f "${path.join(backendDir, 'migrations', '003_event_checklist_data.sql')}"`, {
+    stdio: 'pipe'
+  });
 };

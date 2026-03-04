@@ -219,6 +219,15 @@ const commanderApi = {
     return request(`/event/${eventId}/invite-code`, { method: 'GET' });
   },
 
+  async joinEvent(inviteCode, campId = null) {
+    const body = { invite_code: inviteCode };
+    if (campId) body.camp_id = campId;
+    return request('/event/join', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
   async getChecklistData(eventId) {
     const data = await request(`/event/${eventId}/checklist-data`, { method: 'GET' });
     return data.data || data;

@@ -15,6 +15,48 @@ const requireCommander = (req, res, next) => {
   next();
 };
 
+// Allow Commander OR the event creator (first person to save setup = incident commander)
+const requireCommanderOrCreator = (getEventId) => async (req, res, next) => {
+  if (req.user.role === 'Commander') return next();
+  const eventId = getEventId ? await getEventId(req) : req.params.eventId;
+  if (!eventId) {
+    return res.status(403).json({ success: false, message: 'Only commanders or the event creator can manage events' });
+  }
+  const ev = await pool.query('SELECT created_by FROM events WHERE event_id = $1', [eventId]);
+  if (ev.rows.length === 0 || ev.rows[0].created_by !== req.user.professional_id) {
+    return res.status(403).json({ success: false, message: 'Only commanders or the event creator can manage events' });
+  }
+  next();
+};
+
+const getCurrentEventId = async (req) => {
+  const r = await pool.query(
+    'SELECT current_event_id FROM professionals WHERE professional_id = $1',
+    [req.user.professional_id]
+  );
+  return r.rows[0]?.current_event_id;
+};
+
+// Allow Commander, event creator, OR user in the event (current_event_id matches)
+const requireChecklistAccess = async (req, res, next) => {
+  const eventId = req.params.eventId;
+  if (!eventId) {
+    return res.status(400).json({ success: false, message: 'Event ID required' });
+  }
+  if (req.user.role === 'Commander') return next();
+  const [ev, prof] = await Promise.all([
+    pool.query('SELECT created_by FROM events WHERE event_id = $1', [eventId]),
+    pool.query('SELECT current_event_id FROM professionals WHERE professional_id = $1', [req.user.professional_id])
+  ]);
+  if (ev.rows.length === 0) {
+    return res.status(404).json({ success: false, message: 'Event not found' });
+  }
+  const isCreator = ev.rows[0].created_by === req.user.professional_id;
+  const isParticipant = prof.rows[0]?.current_event_id === eventId;
+  if (isCreator || isParticipant) return next();
+  return res.status(403).json({ success: false, message: 'Access denied. Join the event to view or update checklist data.' });
+};
+
 // Validate status transitions
 const VALID_STATUS_TRANSITIONS = {
   'upcoming': ['in_progress', 'cancelled'],
@@ -133,6 +175,7 @@ router.get('/active', authenticateToken, async (req, res) => {
     }
 
     const event = row;
+    const canSeeInviteCode = req.user.role === 'Commander' || event.created_by === req.user.professional_id;
     const response = {
       success: true,
       event: {
@@ -142,7 +185,7 @@ router.get('/active', authenticateToken, async (req, res) => {
         status: event.status,
         start_time: event.start_time,
         finish_time: event.finish_time,
-        ...(req.user.role === 'Commander' && event.invite_code && { invite_code: event.invite_code })
+        ...(canSeeInviteCode && event.invite_code && { invite_code: event.invite_code })
       }
     };
 
@@ -190,8 +233,7 @@ router.get('/current', authenticateToken, async (req, res) => {
     }
 
     const event = row;
-    
-    // Only include invite_code if user is a commander
+    const canSeeInviteCode = req.user.role === 'Commander' || event.created_by === req.user.professional_id;
     const response = {
       success: true,
       event: {
@@ -201,7 +243,7 @@ router.get('/current', authenticateToken, async (req, res) => {
         status: event.status,
         start_time: event.start_time,
         finish_time: event.finish_time,
-        ...(req.user.role === 'Commander' && event.invite_code && { invite_code: event.invite_code })
+        ...(canSeeInviteCode && event.invite_code && { invite_code: event.invite_code })
       }
     };
 
@@ -216,9 +258,8 @@ router.get('/current', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /events/start - Start current event (Commander only; drills allowed any user)
-// Transitions event from 'upcoming' to 'in_progress'. Uses Commander's current_event_id.
-router.post('/start', authenticateToken, requireCommander, async (req, res) => {
+// POST /events/start - Commander or event creator can start
+router.post('/start', authenticateToken, requireCommanderOrCreator(getCurrentEventId), async (req, res) => {
   try {
     const professionalId = req.user.professional_id;
 
@@ -278,9 +319,8 @@ router.post('/start', authenticateToken, requireCommander, async (req, res) => {
   }
 });
 
-// POST /events/stop - Stop current event (Commander only; drills allowed any user)
-// Transitions event from 'in_progress' to 'finished'.
-router.post('/stop', authenticateToken, requireCommander, async (req, res) => {
+// POST /events/stop - Commander or event creator can stop
+router.post('/stop', authenticateToken, requireCommanderOrCreator(getCurrentEventId), async (req, res) => {
   try {
     const professionalId = req.user.professional_id;
 
@@ -486,8 +526,8 @@ router.get('/:eventId', authenticateToken, [
   }
 });
 
-// POST /events/create
-router.post('/create', authenticateToken, idempotencyMiddleware, requireCommander, [
+// POST /events/create - any authenticated user can create (first person = incident commander)
+router.post('/create', authenticateToken, idempotencyMiddleware, [
   body('name').notEmpty().trim().isLength({ min: 3, max: 200 }),
   body('location').optional().trim().isLength({ max: 500 }),
   body('start_time').optional().isISO8601().toDate(),
@@ -575,8 +615,8 @@ router.post('/create', authenticateToken, idempotencyMiddleware, requireCommande
   }
 });
 
-// PUT /events/update/:eventId
-router.put('/update/:eventId', authenticateToken, idempotencyMiddleware, requireCommander, [
+// PUT /events/update/:eventId - Commander or event creator
+router.put('/update/:eventId', authenticateToken, idempotencyMiddleware, requireCommanderOrCreator(), [
   param('eventId').notEmpty().trim(),
   body('name').optional().notEmpty().trim().isLength({ min: 3, max: 200 }),
   body('location').optional().trim().isLength({ max: 500 }),
@@ -834,8 +874,67 @@ router.delete('/delete/:eventId', authenticateToken, idempotencyMiddleware, requ
   }
 });
 
-// GET /events/:eventId/invite-code
-router.get('/:eventId/invite-code', authenticateToken, requireCommander, [
+// GET /event/:eventId/checklist-data - Anyone in event can read
+router.get('/:eventId/checklist-data', authenticateToken, requireChecklistAccess, [
+  param('eventId').notEmpty().trim()
+], async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const result = await pool.query(
+      'SELECT payload, updated_at FROM event_checklist_data WHERE event_id = $1',
+      [eventId]
+    );
+    const payload = result.rows[0]?.payload || {};
+    res.json({ success: true, data: payload });
+  } catch (error) {
+    console.error('Get checklist data error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch checklist data',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// PUT /event/:eventId/checklist-data - Anyone in event can write (merge)
+router.put('/:eventId/checklist-data', authenticateToken, requireChecklistAccess, [
+  param('eventId').notEmpty().trim(),
+  body('payload').isObject()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+    const { eventId } = req.params;
+    const { payload } = req.body;
+
+    await pool.query(
+      `INSERT INTO event_checklist_data (event_id, payload, updated_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (event_id) DO UPDATE SET
+         payload = COALESCE(event_checklist_data.payload, '{}'::jsonb) || EXCLUDED.payload,
+         updated_at = CURRENT_TIMESTAMP`,
+      [eventId, JSON.stringify(payload)]
+    );
+
+    const result = await pool.query(
+      'SELECT payload FROM event_checklist_data WHERE event_id = $1',
+      [eventId]
+    );
+    res.json({ success: true, data: result.rows[0]?.payload || {} });
+  } catch (error) {
+    console.error('Update checklist data error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update checklist data',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// GET /events/:eventId/invite-code - Commander or event creator
+router.get('/:eventId/invite-code', authenticateToken, requireCommanderOrCreator(), [
   param('eventId').notEmpty().trim()
 ], async (req, res) => {
   try {
