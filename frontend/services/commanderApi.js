@@ -1,11 +1,11 @@
 /**
- * Commander flow API – talks to emertgency-backend (commander server).
- * Base URL can be overridden via env or constant when backends are integrated.
+ * Commander flow API – talks to backend (main server).
+ * Base URL can be overridden via env: EXPO_PUBLIC_COMMANDER_API_URL
  */
-// Commander backend default port 5010. For Expo Go on device use your machine IP: EXPO_PUBLIC_COMMANDER_API_URL=http://100.69.38.177:5010/api
+// Backend default port 3000. For Expo Go on device use your machine IP: EXPO_PUBLIC_COMMANDER_API_URL=http://10.0.0.3:3000
 const COMMANDER_API_BASE_URL =
   (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_COMMANDER_API_URL) ||
-  'http://localhost:5010/api';
+  'http://localhost:3000';
 
 const COMMANDER_TOKEN_KEY = '@emertgency:commander_auth_token';
 const COMMANDER_USER_KEY = '@emertgency:commander_user';
@@ -85,11 +85,11 @@ const commanderApi = {
       body: JSON.stringify({ email, password }),
     });
     const token = data.token;
-    const professional = data.professional;
+    const professional = data.professional || data.user;
     if (token) {
-      await setCommanderAuth(token, professional || data.user);
+      await setCommanderAuth(token, professional);
     }
-    return { success: true, token, professional: professional || data.user };
+    return { success: true, token, professional };
   },
 
   async logout() {
@@ -97,7 +97,8 @@ const commanderApi = {
   },
 
   async getCurrentUser() {
-    return request('/auth/me', { method: 'GET' });
+    const data = await request('/auth/me', { method: 'GET' });
+    return data.user || data;
   },
 
   async getCasualtyStatistics() {
@@ -107,7 +108,7 @@ const commanderApi = {
 
   async getResourceRequests() {
     const data = await request('/resources', { method: 'GET' });
-    return data.data || data || [];
+    return data.resourceRequests || data.data || (Array.isArray(data) ? data : []);
   },
 
   async getActiveDrill() {
@@ -149,7 +150,7 @@ const commanderApi = {
 
   async getProfessionals() {
     const data = await request('/professionals', { method: 'GET' });
-    const list = Array.isArray(data) ? data : data.data || [];
+    const list = Array.isArray(data) ? data : data.professionals || data.data || [];
     return list.map(normalizeProfessional);
   },
 
