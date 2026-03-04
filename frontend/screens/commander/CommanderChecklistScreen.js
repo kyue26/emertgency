@@ -11,8 +11,23 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, spacing, shadows, radius } from "../../styles/CommanderTheme";
 import commanderApi, { getCommanderUser } from "../../services/commanderApi";
+
+const ROLE_STORAGE_PREFIX = "@emertgency:role_assignments:";
+const TREATMENT_COUNTS_PREFIX = "@emertgency:treatment_counts:";
+
+// Map drill setup role keys to checklist responsibility names
+const ROLE_KEY_TO_RESPONSIBILITY = {
+  command: "Incident Command",
+  staging: "Staging",
+  triage: "Triage",
+  treatment: "Treatment",
+  transport: "Transport",
+};
+
+const ALL_RESPONSIBILITIES = ["Staging", "Incident Command", "Triage", "Treatment", "Transport"];
 
 const RESPONSIBILITY_ICONS = {
   Staging: "map-pin",
@@ -22,29 +37,28 @@ const RESPONSIBILITY_ICONS = {
   Transport: "truck",
 };
 
-const getRoleResponsibilities = (role, email) => {
-  if (email === "luna1@gmail.com") {
-    return ["Staging", "Incident Command", "Triage", "Treatment", "Transport"];
+/** Derive user responsibilities from role assignments (same source as Drill Setup). IC sees all 5; others see only their assigned role(s). */
+function getResponsibilitiesFromRoleAssignments(roleAssignments, userName) {
+  if (!roleAssignments) return [];
+  const name = (userName || "").trim().toLowerCase();
+  if (!name) return [];
+  const responsibilities = [];
+  for (const [roleKey, assignedName] of Object.entries(roleAssignments)) {
+    const mapped = ROLE_KEY_TO_RESPONSIBILITY[roleKey];
+    const assigned = (assignedName || "").trim().toLowerCase();
+    if (mapped && assigned && assigned === name) {
+      responsibilities.push(mapped);
+    }
   }
-  switch (role) {
-    case "Commander":
-      return ["Staging", "Incident Command", "Triage", "Treatment", "Transport"];
-    case "Medical Officer":
-      return ["Triage", "Treatment"];
-    case "MERT Member":
-      return ["Staging", "Transport"];
-    case "Staging Officer":
-      return ["Staging"];
-    case "Triage Officer":
-      return ["Triage"];
-    case "Treatment Officer":
-      return ["Treatment"];
-    case "Transport Officer":
-      return ["Transport"];
-    default:
-      return ["Staging", "Incident Command", "Triage", "Treatment", "Transport"];
-  }
-};
+  return responsibilities;
+}
+
+/** Check if user is Incident Commander (assigned to command). */
+function isIncidentCommander(roleAssignments, userName) {
+  const cmd = (roleAssignments?.command || "").trim().toLowerCase();
+  const name = (userName || "").trim().toLowerCase();
+  return cmd && name && cmd === name;
+}
 
 const INITIAL_TASKS = [
   { id: "staging-1", title: "Staging - All EMTs arrived?", responsibility: "Staging", completed: false },
@@ -109,17 +123,57 @@ export default function CommanderChecklistScreen() {
   const [triageNotes, setTriageNotes] = useState("");
   const [stagingTriageInfo, setStagingTriageInfo] = useState("");
   const [stagingTreatmentInfo, setStagingTreatmentInfo] = useState("");
+  const [currentEventId, setCurrentEventId] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const [drill, userData] = await Promise.all([
-        commanderApi.getActiveDrill(),
+      const [eventRes, userData] = await Promise.all([
+        commanderApi.getCurrentEvent().catch(() => ({ success: false, event: null })),
         getCommanderUser(),
       ]);
       const u = userData || (await commanderApi.getCurrentUser().catch(() => null));
       if (u) setUser(u.professional || u);
-      if (drill?.role_assignments) setRoleAssignments(drill.role_assignments);
-      setIsDrillActive(drill?.status === "active" || !!drill?.is_active);
+      const event = eventRes?.event || eventRes?.data?.event || null;
+      setIsDrillActive(event?.status === "in_progress");
+      if (event?.event_id) {
+        setCurrentEventId(event.event_id);
+        try {
+          let parsed = null;
+          try {
+            parsed = await commanderApi.getChecklistData(event.event_id);
+          } catch (_) {
+            const stored = await AsyncStorage.getItem(TREATMENT_COUNTS_PREFIX + event.event_id);
+            parsed = stored ? JSON.parse(stored) : null;
+          }
+          if (parsed?.roleAssignments && Object.keys(parsed.roleAssignments).length > 0) {
+            setRoleAssignments(parsed.roleAssignments);
+          } else {
+            const stored = await AsyncStorage.getItem(ROLE_STORAGE_PREFIX + event.event_id);
+            setRoleAssignments(stored ? JSON.parse(stored) : {});
+          }
+          if (parsed) {
+            if (parsed.treatmentTarpCounts) setTreatmentTarpCounts(parsed.treatmentTarpCounts);
+            if (parsed.transportEntries) setTransportEntries(parsed.transportEntries);
+            if (typeof parsed.deceasedCount === "number") setDeceasedCount(parsed.deceasedCount);
+            if (parsed.triageCounts) setTriageCounts(parsed.triageCounts);
+            if (parsed.resourcesRequested) setResourcesRequested(parsed.resourcesRequested);
+            if (parsed.agenciesOnScene) setAgenciesOnScene(parsed.agenciesOnScene);
+            if (parsed.locationDetails) setLocationDetails((p) => ({ ...p, ...parsed.locationDetails }));
+            if (parsed.stagingRadioChecks) setStagingRadioChecks(parsed.stagingRadioChecks);
+            if (parsed.treatmentRadioChecks) setTreatmentRadioChecks(parsed.treatmentRadioChecks);
+            if (parsed.transportRadioChecks) setTransportRadioChecks(parsed.transportRadioChecks);
+            if (parsed.triageRadioChecks) setTriageRadioChecks(parsed.triageRadioChecks);
+            if (parsed.notes != null) setNotes(parsed.notes);
+            if (parsed.stagingTriageInfo != null) setStagingTriageInfo(parsed.stagingTriageInfo);
+            if (parsed.stagingTreatmentInfo != null) setStagingTreatmentInfo(parsed.stagingTreatmentInfo);
+            if (parsed.triageNotes != null) setTriageNotes(parsed.triageNotes);
+            if (parsed.allTasks?.length) setAllTasks(parsed.allTasks);
+          }
+        } catch (_) {}
+      } else {
+        setCurrentEventId(null);
+        setRoleAssignments({});
+      }
     } catch (e) {
       console.warn("Checklist load error:", e);
     }
@@ -127,7 +181,59 @@ export default function CommanderChecklistScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const userResponsibilities = user?.role ? getRoleResponsibilities(user.role, user.email) : ["Staging", "Incident Command", "Triage", "Treatment", "Transport"];
+  useEffect(() => {
+    if (!currentEventId) return;
+    const payload = {
+      treatmentTarpCounts,
+      transportEntries,
+      deceasedCount,
+      triageCounts,
+      resourcesRequested,
+      agenciesOnScene,
+      locationDetails,
+      stagingRadioChecks,
+      treatmentRadioChecks,
+      transportRadioChecks,
+      triageRadioChecks,
+      notes,
+      stagingTriageInfo,
+      stagingTreatmentInfo,
+      triageNotes,
+      allTasks,
+    };
+    AsyncStorage.setItem(TREATMENT_COUNTS_PREFIX + currentEventId, JSON.stringify(payload)).catch(() => {});
+    const t = setTimeout(() => {
+      commanderApi.putChecklistData(currentEventId, payload).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [
+    currentEventId,
+    treatmentTarpCounts,
+    transportEntries,
+    deceasedCount,
+    triageCounts,
+    resourcesRequested,
+    agenciesOnScene,
+    locationDetails,
+    stagingRadioChecks,
+    treatmentRadioChecks,
+    transportRadioChecks,
+    triageRadioChecks,
+    notes,
+    stagingTriageInfo,
+    stagingTreatmentInfo,
+    triageNotes,
+    allTasks,
+  ]);
+
+  const userResponsibilities = (() => {
+    const u = user?.professional || user;
+    const name = (u?.name || u?.email || user?.name || user?.email || "").trim();
+    if (!name) return [];
+    if (isIncidentCommander(roleAssignments, name)) return ALL_RESPONSIBILITIES;
+    const fromAssignments = getResponsibilitiesFromRoleAssignments(roleAssignments, name);
+    return fromAssignments;
+  })();
   const visibleTasks = allTasks.filter((t) => t.responsibility === activeTab);
   const completedCount = visibleTasks.filter((t) => t.completed).length;
   const totalCount = visibleTasks.length;
@@ -136,6 +242,8 @@ export default function CommanderChecklistScreen() {
   useEffect(() => {
     if (userResponsibilities.length > 0 && !userResponsibilities.includes(activeTab)) {
       setActiveTab(userResponsibilities[0]);
+    } else if (userResponsibilities.length === 0) {
+      setActiveTab(null);
     }
   }, [userResponsibilities]);
 
@@ -274,13 +382,26 @@ export default function CommanderChecklistScreen() {
     </TouchableOpacity>
   );
 
+  if (userResponsibilities.length === 0) {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={[styles.card, styles.sectionIndent, styles.emptyBox]}>
+          <Feather name="user-x" size={48} color={colors.textSecondary} />
+          <Text style={styles.emptyText}>
+            You are not assigned to any role. Contact the Incident Commander to get assigned in Drill Setup.
+          </Text>
+        </View>
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       {/* Progress card */}
       <View style={[styles.card, styles.sectionIndent]}>
         <View style={styles.progressRow}>
           <View style={styles.progressTitleWrap}>
-            <Text style={styles.progressTitle}>Current Responsibility: {activeTab}</Text>
+            <Text style={styles.progressTitle}>Current Responsibility: {activeTab || userResponsibilities[0]}</Text>
             <Text style={styles.progressSub}>Track your progress below</Text>
           </View>
         </View>
