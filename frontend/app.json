@@ -8,13 +8,18 @@
       "**/*"
     ],
     "android": {
-      "package": "com.anonymous.frontend"
+      "package": "com.emertgency.iosapp"
     },
     "ios": {
-      "bundleIdentifier": "com.anonymous.frontend"
+      "bundleIdentifier": "com.emertgency.iosapp"
     },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e0cd45f0-fe4a-4412-a839-6781ddf5e1bd"
+      }
+    }
   }
 }

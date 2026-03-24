@@ -302,7 +302,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.anonymous.frontend";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.emertgency.iosapp";
 				PRODUCT_NAME = "frontend";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -329,7 +329,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.anonymous.frontend";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.emertgency.iosapp";
 				PRODUCT_NAME = "frontend";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";

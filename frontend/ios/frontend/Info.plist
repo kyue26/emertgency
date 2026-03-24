@@ -27,7 +27,7 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>com.anonymous.frontend</string>
+          <string>com.emertgency.iosapp</string>
         </array>
       </dict>
     </array>
