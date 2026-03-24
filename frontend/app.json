@@ -14,7 +14,14 @@
       "bundleIdentifier": "com.emertgency.iosapp"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      ["expo-build-properties",
+      {
+        "ios": {
+          "deploymentTarget": "15.1"
+        }
+      }
+    ]
     ],
     "extra": {
       "eas": {
