@@ -306,6 +306,45 @@ describe('POST /events/join', () => {
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
   });
+
+  it('returns 400 when trying to join an event already in progress', async () => {
+    const { token: commanderToken } = await getToken({ role: 'Commander' });
+    const eventRes = await createEvent(commanderToken, { name: 'Started Event', status: 'in_progress' });
+    const inviteCode = eventRes.body.event.invite_code;
+
+    const { token: memberToken } = await getToken({ role: 'MERT Member', name: 'Late Joiner' });
+
+    const res = await request(app)
+      .post('/events/join')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ invite_code: inviteCode });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/already started|finished|cancelled/i);
+  });
+
+  it('allows join for in_progress event with future start_time', async () => {
+    const { token: commanderToken } = await getToken({ role: 'Commander' });
+    const futureStart = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const eventRes = await createEvent(commanderToken, {
+      name: 'Future Start Event',
+      status: 'in_progress',
+      start_time: futureStart,
+    });
+    const inviteCode = eventRes.body.event.invite_code;
+
+    const { token: memberToken } = await getToken({ role: 'MERT Member', name: 'On Time Joiner' });
+
+    const res = await request(app)
+      .post('/events/join')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ invite_code: inviteCode });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.event.event_id).toBe(eventRes.body.event.event_id);
+  });
 });
 
 describe('GET /events/:eventId/statistics', () => {

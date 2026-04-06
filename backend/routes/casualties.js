@@ -171,8 +171,14 @@ router.get('/statistics', authenticateToken, async (req, res) => {
     let sqlQuery = `
       SELECT 
         color,
-        COUNT(*) FILTER (WHERE hospital_status IS NULL OR hospital_status = '') as in_treatment,
-        COUNT(*) FILTER (WHERE hospital_status IS NOT NULL AND hospital_status != '') as transported,
+        COUNT(*) FILTER (
+          WHERE hospital_status IS NULL OR hospital_status = '' OR hospital_status = 'not_transported'
+        ) as in_treatment,
+        COUNT(*) FILTER (
+          WHERE hospital_status IS NOT NULL
+            AND hospital_status != ''
+            AND hospital_status != 'not_transported'
+        ) as transported,
         COUNT(*) as total
       FROM injured_persons
     `;
@@ -181,6 +187,11 @@ router.get('/statistics', authenticateToken, async (req, res) => {
     if (eventId) {
       sqlQuery += ' WHERE event_id = $1';
       params.push(eventId);
+    } else if (req.user.role !== 'Commander') {
+      sqlQuery += ` WHERE event_id = (
+        SELECT current_event_id FROM professionals WHERE professional_id = $1
+      )`;
+      params.push(req.user.professional_id);
     }
 
     sqlQuery += `

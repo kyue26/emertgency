@@ -295,8 +295,15 @@ router.post('/start', authenticateToken, requireCommanderOrCreator(getCurrentEve
     }
 
     const result = await pool.query(
-      `UPDATE events SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP
-       WHERE event_id = $1 RETURNING *`,
+      `UPDATE events
+       SET status = 'in_progress',
+           start_time = CASE
+             WHEN start_time IS NULL OR start_time > CURRENT_TIMESTAMP THEN CURRENT_TIMESTAMP
+             ELSE start_time
+           END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE event_id = $1
+       RETURNING *`,
       [current_event_id]
     );
 
@@ -1005,12 +1012,16 @@ router.post('/join', authenticateToken, [
 
     const event = eventResult.rows[0];
 
-    // Check if event is finished or cancelled
-    if (event.status === 'finished' || event.status === 'cancelled') {
+    // Treat event as started only when in_progress and start_time is now/past (or missing).
+    const hasActuallyStarted =
+      event.status === 'in_progress' &&
+      (!event.start_time || new Date(event.start_time) <= new Date());
+
+    if (hasActuallyStarted || event.status === 'finished' || event.status === 'cancelled') {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
         success: false, 
-        message: 'Cannot join finished or cancelled events' 
+        message: 'Cannot join events that have already started, finished, or cancelled' 
       });
     }
 

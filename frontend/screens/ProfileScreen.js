@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, RefreshControl } from "react-native";
 import { FontAwesome5, MaterialIcons, Feather } from '@expo/vector-icons'; // Assuming you use expo vector icons or similar
+import { useFocusEffect } from "@react-navigation/native";
 import styles from "../styles/ProfileScreenStyles";
 import { getStoredUser, authAPI, taskAPI, eventAPI, shiftAPI } from "../services/api";
 import { AuthContext } from "../context/AuthContext";
@@ -30,7 +31,6 @@ const ProfileScreen = ({ navigation }) => {
 
   useEffect(() => {
     loadUserData();
-    loadTaskStats();
     loadCurrentEvent();
   }, []);
 
@@ -53,9 +53,16 @@ const ProfileScreen = ({ navigation }) => {
     }
   };
 
-  const loadTaskStats = async () => {
+  const loadTaskStats = async (eventOverride = null, userOverride = null) => {
     try {
-      const response = await taskAPI.getTasks({ my_tasks: true });
+      const currentUser = userOverride || user;
+      const currentEventId = eventOverride || currentEvent?.event_id;
+      if (!currentUser || !currentEventId) {
+        setTaskStats({ pending: 0, active: 0, total: 0 });
+        return;
+      }
+
+      const response = await taskAPI.getTasks({ event_id: currentEventId, assigned_to: currentUser.professional_id });
       if (response.success && response.tasks) {
         const tasks = response.tasks;
         const pending = tasks.filter(t => t.status === 'pending').length;
@@ -105,12 +112,39 @@ const ProfileScreen = ({ navigation }) => {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadUserData(), loadTaskStats(), loadCurrentEvent()]);
+      await Promise.all([loadUserData(), loadCurrentEvent()]);
+      await loadTaskStats(currentEvent?.event_id, user);
       await loadShiftData();
     } finally {
       setRefreshing(false);
     }
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+
+      const refresh = async () => {
+        await loadUserData();
+        const eventResponse = await eventAPI.getCurrentEvent().catch(() => null);
+        const event = eventResponse?.event || null;
+        if (!isMounted) return;
+        setCurrentEvent(event);
+        await loadTaskStats(event?.event_id, await getStoredUser().catch(() => null));
+      };
+
+      refresh();
+
+      const intervalId = setInterval(() => {
+        refresh();
+      }, 10000);
+
+      return () => {
+        isMounted = false;
+        clearInterval(intervalId);
+      };
+    }, [])
+  );
 
   const formatTime = (timestamp) => {
     if (!timestamp) return "—";

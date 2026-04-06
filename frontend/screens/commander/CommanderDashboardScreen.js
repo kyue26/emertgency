@@ -13,47 +13,14 @@ import { useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, spacing, shadows } from "../../styles/CommanderTheme";
 import commanderApi from "../../services/commanderApi";
+import { transformCasualties } from "../../utils/casualtyTransform";
+import {
+  EMPTY_PRIORITY_STATS,
+  mergeDashboardStats,
+  transportEntriesToFeed,
+} from "../../utils/dashboardStats";
 
-/** Convert Officer Checklist treatment counts to dashboard stats format */
-function countsToStats(treatmentTarpCounts, transportEntries, deceasedCount) {
-  const sum = (color) =>
-    ["priority1", "priority2", "priority3", "dead"].reduce(
-      (s, k) => s + (treatmentTarpCounts?.[color]?.[k]?.count ?? 0),
-      0
-    );
-  const p1 = transportEntries?.priority1?.length ?? 0;
-  const p2 = transportEntries?.priority2?.length ?? 0;
-  const p3 = transportEntries?.priority3?.length ?? 0;
-  const redTotal = sum("red");
-  const yellowTotal = sum("yellow");
-  const greenTotal = sum("green");
-  const deadInTarps =
-    (treatmentTarpCounts?.red?.dead?.count ?? 0) +
-    (treatmentTarpCounts?.yellow?.dead?.count ?? 0) +
-    (treatmentTarpCounts?.green?.dead?.count ?? 0);
-  return {
-    red: {
-      total: redTotal,
-      transported: p1,
-      in_treatment: Math.max(0, redTotal - p1),
-    },
-    yellow: {
-      total: yellowTotal,
-      transported: p2,
-      in_treatment: Math.max(0, yellowTotal - p2),
-    },
-    green: {
-      total: greenTotal,
-      transported: p3,
-      in_treatment: Math.max(0, greenTotal - p3),
-    },
-    black: {
-      total: (deceasedCount ?? 0) + deadInTarps,
-      transported: 0,
-      in_treatment: 0,
-    },
-  };
-}
+const DASHBOARD_REFRESH_MS = 10000;
 
 const PRIORITY_CONFIG = [
   { key: "red", label: "Priority 1", bg: colors.redBg, border: colors.red, text: colors.red },
@@ -66,20 +33,41 @@ export default function CommanderDashboardScreen() {
   const [stats, setStats] = useState(null);
   const [checklistData, setChecklistData] = useState(null);
   const [resources, setResources] = useState([]);
+  const [transportedPatients, setTransportedPatients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [eventRes, statsData, resourcesData] = await Promise.all([
-        commanderApi.getCurrentEvent().catch(() => ({ success: false, event: null })),
-        commanderApi.getCasualtyStatistics().catch(() => null),
-        commanderApi.getResourceRequests().catch(() => []),
-      ]);
+      const eventRes = await commanderApi
+        .getCurrentEvent()
+        .catch(() => ({ success: false, event: null }));
       const event = eventRes?.event || eventRes?.data?.event || null;
       const eventId = event?.event_id;
 
-      let priorityStats = statsData || { red: {}, yellow: {}, green: {}, black: {} };
+      const [statsData, resourcesData, casualtiesData] = await Promise.all([
+        eventId
+          ? commanderApi.getCasualtyStatistics(eventId).catch(() => null)
+          : Promise.resolve(null),
+        commanderApi.getResourceRequests().catch(() => []),
+        eventId
+          ? commanderApi.getCasualties({ event_id: eventId, limit: 200 }).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+
+      const priorityStats = statsData || EMPTY_PRIORITY_STATS;
+
+      const transformed = transformCasualties(Array.isArray(casualtiesData) ? casualtiesData : []);
+      const transported = transformed
+        .filter((c) => c.hospital_status && c.hospital_status !== "not_transported")
+        .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))
+        .map((c) => ({
+          id: c.injured_person_id || c.id,
+          name: c.name || c.injured_person_id || c.id,
+          status: c.hospital_status,
+          time: c.updated_at ? new Date(c.updated_at).toLocaleTimeString() : "-",
+        }));
+
       let checklistData = null;
       if (eventId) {
         try {
@@ -90,18 +78,16 @@ export default function CommanderDashboardScreen() {
             checklistData = stored ? JSON.parse(stored) : null;
           } catch (_) {}
         }
-        if (checklistData) {
-          priorityStats = countsToStats(
-            checklistData.treatmentTarpCounts,
-            checklistData.transportEntries,
-            checklistData.deceasedCount
-          );
-        }
       } else {
         checklistData = null;
       }
 
-      setStats(priorityStats);
+      setStats(mergeDashboardStats({ casualtyStats: priorityStats, checklistData }));
+      if (checklistData?.transportEntries) {
+        setTransportedPatients(transportEntriesToFeed(checklistData.transportEntries).slice(0, 10));
+      } else {
+        setTransportedPatients(transported.slice(0, 10));
+      }
       setChecklistData(checklistData);
       setResources(Array.isArray(resourcesData) ? resourcesData : []);
     } catch (e) {
@@ -114,8 +100,15 @@ export default function CommanderDashboardScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
       load();
+
+      const intervalId = setInterval(() => {
+        load();
+      }, DASHBOARD_REFRESH_MS);
+
+      return () => {
+        clearInterval(intervalId);
+      };
     }, [load])
   );
 
@@ -249,6 +242,26 @@ export default function CommanderDashboardScreen() {
             </View>
           ));
         })()}
+      </Animated.View>
+
+      <Animated.View entering={FadeInDown.duration(400).delay(320)} style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitleWhite}>Transport updates</Text>
+        </View>
+        {transportedPatients.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Feather name="truck" size={32} color={colors.textSecondary} />
+            <Text style={styles.emptyText}>No transported casualties yet</Text>
+          </View>
+        ) : (
+          transportedPatients.map((p) => (
+            <View key={p.id} style={styles.resourceCard}>
+              <Text style={styles.resourceName}>{p.name}</Text>
+              <Text style={styles.resourceStatus}>Status: {p.status}</Text>
+              <Text style={styles.resourceTime}>Time: {p.time}</Text>
+            </View>
+          ))
+        )}
       </Animated.View>
 
       <Animated.View entering={FadeInDown.duration(400).delay(360)} style={styles.section}>

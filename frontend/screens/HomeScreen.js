@@ -14,10 +14,18 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { eventAPI, casualtyAPI } from "../services/api";
 import { transformCasualties } from "../utils/casualtyTransform";
+import {
+  EMPTY_PRIORITY_STATS,
+  mergeDashboardStats,
+  getDashboardTotal,
+} from "../utils/dashboardStats";
+
+const DASHBOARD_REFRESH_MS = 10000;
 
 export default function HomeScreen({ navigation }) {
   const [casualties, setCasualties] = useState([]);
   const [activeEvent, setActiveEvent] = useState(null);
+  const [priorityStats, setPriorityStats] = useState(EMPTY_PRIORITY_STATS);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -36,6 +44,15 @@ export default function HomeScreen({ navigation }) {
       if (currentEventResponse.success && currentEventResponse.event) {
         const event = currentEventResponse.event;
         setActiveEvent(event);
+
+        const [statsResponse, checklistData] = await Promise.all([
+          casualtyAPI.getCasualtyStatistics(event.event_id).catch(() => null),
+          eventAPI.getChecklistData(event.event_id).catch(() => null),
+        ]);
+        const baseStats = statsResponse?.success && statsResponse?.data
+          ? statsResponse.data
+          : EMPTY_PRIORITY_STATS;
+        setPriorityStats(mergeDashboardStats({ casualtyStats: baseStats, checklistData }));
         
         // get casualties for this event
         const casualtiesResponse = await casualtyAPI.getCasualties({ 
@@ -52,6 +69,7 @@ export default function HomeScreen({ navigation }) {
         // no current event
         setActiveEvent(null);
         setCasualties([]);
+        setPriorityStats(EMPTY_PRIORITY_STATS);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -66,6 +84,14 @@ export default function HomeScreen({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       loadData();
+
+      const intervalId = setInterval(() => {
+        loadData();
+      }, DASHBOARD_REFRESH_MS);
+
+      return () => {
+        clearInterval(intervalId);
+      };
     }, [loadData])
   );
 
@@ -74,8 +100,15 @@ export default function HomeScreen({ navigation }) {
     loadData();
   };
 
-  const count = (level) =>
-    casualties.filter((c) => (c.color || c.triageLevel) === level).length;
+  const count = (level) => Number(priorityStats?.[level]?.total || 0);
+
+  const totalCount = getDashboardTotal(priorityStats);
+
+  const transportedByPriority = {
+    priority1: Number(priorityStats?.red?.transported || 0),
+    priority2: Number(priorityStats?.yellow?.transported || 0),
+    priority3: Number(priorityStats?.green?.transported || 0),
+  };
 
   const recent = casualties.slice(0, 5);
 
@@ -104,7 +137,7 @@ export default function HomeScreen({ navigation }) {
             </Text>
           </View>
 
-          <Text style={styles.totalText}>Total: {casualties.length}</Text>
+          <Text style={styles.totalText}>Total: {totalCount}</Text>
         </View>
 
         {!activeEvent && (
@@ -141,6 +174,13 @@ export default function HomeScreen({ navigation }) {
               </Text>
             </View>
           ))}
+        </View>
+
+        <View style={styles.transportRow}>
+          <Text style={styles.transportLabel}>Transported:</Text>
+          <Text style={styles.transportValue}>P1 {transportedByPriority.priority1}</Text>
+          <Text style={styles.transportValue}>P2 {transportedByPriority.priority2}</Text>
+          <Text style={styles.transportValue}>P3 {transportedByPriority.priority3}</Text>
         </View>
       </View>
 
@@ -236,6 +276,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-around",
     marginTop: 8,
   },
+
+  transportRow: {
+    marginTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    paddingTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  transportLabel: { color: "#374151", fontSize: 13, fontWeight: "600" },
+  transportValue: { color: "#111827", fontSize: 13, fontWeight: "700" },
 
   triageColumn: { alignItems: "center" },
 

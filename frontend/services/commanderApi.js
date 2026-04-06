@@ -107,6 +107,12 @@ const commanderApi = {
     return data.data || data;
   },
 
+  async getCasualties(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const data = await request(`/casualties${query ? `?${query}` : ''}`, { method: 'GET' });
+    return data.casualties || data.data || [];
+  },
+
   async getResourceRequests() {
     const data = await request('/resources', { method: 'GET' });
     return data.resourceRequests || data.data || (Array.isArray(data) ? data : []);

@@ -288,6 +288,12 @@ export const eventAPI = {
       method: 'POST',
     });
   },
+
+  // GET /event/:eventId/checklist-data
+  getChecklistData: async (eventId) => {
+    const res = await apiRequest(`/event/${eventId}/checklist-data`);
+    return res.data || {};
+  },
 };
 
 // camp endpoints

@@ -249,15 +249,11 @@ const TaskScreen = ({ navigation }) => {
             if (!user || !eventId) return;
 
             // get tasks assigned to me for the current event only
-            const myTasksResponse = await taskAPI.getTasks({ my_tasks: true, event_id: eventId });
+            const myTasksResponse = await taskAPI.getTasks({ event_id: eventId, assigned_to: user.professional_id });
             if (myTasksResponse.success) {
                 const transformed = transformTasks(myTasksResponse.tasks);
                 setAssignedToMeTasks(transformed.filter(t => t.assigned_to === user.professional_id));
-                if (myTasksResponse.pagination && typeof myTasksResponse.pagination.total === 'number') {
-                    setAssignedToMeCount(myTasksResponse.pagination.total);
-                } else {
-                    setAssignedToMeCount(transformed.length);
-                }
+                setAssignedToMeCount(transformed.filter(t => t.assigned_to === user.professional_id).length);
             }
 
             // get tasks assigned by me for the current event only
@@ -265,11 +261,7 @@ const TaskScreen = ({ navigation }) => {
             if (createdTasksResponse.success) {
                 const transformed = transformTasks(createdTasksResponse.tasks);
                 setAssignedByMeTasks(transformed.filter(t => t.created_by === user.professional_id));
-                if (createdTasksResponse.pagination && typeof createdTasksResponse.pagination.total === 'number') {
-                    setAssignedByMeCount(createdTasksResponse.pagination.total);
-                } else {
-                    setAssignedByMeCount(transformed.length);
-                }
+                setAssignedByMeCount(transformed.filter(t => t.created_by === user.professional_id).length);
             }
         } catch (error) {
             console.error('Error loading tasks:', error);
@@ -280,6 +272,14 @@ const TaskScreen = ({ navigation }) => {
     useFocusEffect(
         useCallback(() => {
             loadData();
+
+            const intervalId = setInterval(() => {
+                loadData();
+            }, 10000);
+
+            return () => {
+                clearInterval(intervalId);
+            };
         }, [])
     );
 
