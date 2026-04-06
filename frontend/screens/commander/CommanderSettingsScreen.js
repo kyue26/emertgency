@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, ScrollView, StyleSheet } from "react-native";
+import React, { useCallback, useState } from "react";
+import { View, Text, ScrollView, StyleSheet, RefreshControl } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { colors, spacing } from "../../styles/CommanderTheme";
 
@@ -12,8 +12,19 @@ const SETTINGS_SECTIONS = [
 ];
 
 export default function CommanderSettingsScreen() {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 300);
+  }, []);
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    >
       <Text style={styles.header}>Settings</Text>
       <Text style={styles.subheader}>
         System and command preferences. Full settings can be wired to your backend when integrated.

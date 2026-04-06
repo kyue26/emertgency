@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useContext } from "react";
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity } from "react-native";
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity, Alert, RefreshControl } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
@@ -29,10 +29,12 @@ function getInitials(name) {
 }
 
 export default function CommanderProfileScreen() {
-  const { handleLogout } = useContext(AuthContext);
+  const { userRole, handleLogout, handleSwitchInterface } = useContext(AuthContext);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState("Mass Casualty - Campus Building Collapse");
+  const [switching, setSwitching] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,6 +45,7 @@ export default function CommanderProfileScreen() {
       console.warn("Profile load error:", e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -51,6 +54,11 @@ export default function CommanderProfileScreen() {
       load();
     }, [load])
   );
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    load();
+  }, [load]);
 
   if (loading) {
     return (
@@ -65,6 +73,13 @@ export default function CommanderProfileScreen() {
       style={styles.container}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[colors.pennBlue]}
+        />
+      }
     >
       {/* Profile card with avatar */}
       <Animated.View entering={FadeInDown.duration(400)} style={styles.card}>
@@ -174,6 +189,37 @@ export default function CommanderProfileScreen() {
 
       {/* Sign out */}
       <Animated.View entering={FadeInDown.duration(400).delay(280)} style={[styles.card, styles.logoutCard]}>
+        <TouchableOpacity
+          style={[styles.logoutButton, styles.switchButton, switching && styles.buttonDisabled]}
+          onPress={async () => {
+            if (!handleSwitchInterface || switching) return;
+            setSwitching(true);
+            try {
+              const switched = await handleSwitchInterface();
+              if (!switched) {
+                const targetLabel = userRole === "commander" ? "MERT" : "Commander";
+                Alert.alert(
+                  "Sign-in Required",
+                  `No active ${targetLabel} session found. Please sign in once, then you can switch without logging in again.`
+                );
+              }
+            } finally {
+              setSwitching(false);
+            }
+          }}
+          activeOpacity={0.7}
+          disabled={switching}
+        >
+          <View style={styles.logoutIconWrap}>
+            {switching ? (
+              <ActivityIndicator color={colors.pennBlue} />
+            ) : (
+              <Feather name="repeat" size={20} color={colors.pennBlue} />
+            )}
+          </View>
+          <Text style={styles.switchText}>Switch Interface</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={() => handleLogout?.()}
@@ -294,5 +340,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: colors.red,
+  },
+  switchButton: {
+    marginBottom: spacing.sm,
+    backgroundColor: "rgba(1, 31, 91, 0.08)",
+    borderColor: "rgba(1, 31, 91, 0.22)",
+  },
+  switchText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: colors.pennBlue,
+  },
+  buttonDisabled: {
+    opacity: 0.7,
   },
 });

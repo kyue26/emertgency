@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Modal, TextInput, RefreshControl } from "react-native";
 import { FontAwesome5, MaterialIcons, Feather } from '@expo/vector-icons'; // Assuming you use expo vector icons or similar
 import styles from "../styles/ProfileScreenStyles";
 import { getStoredUser, authAPI, taskAPI, eventAPI, shiftAPI } from "../services/api";
@@ -26,6 +26,7 @@ const ProfileScreen = ({ navigation }) => {
   const [inviteCodeInput, setInviteCodeInput] = useState("");
   const [isJoiningEvent, setIsJoiningEvent] = useState(false);
   const [currentEvent, setCurrentEvent] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     loadUserData();
@@ -98,6 +99,16 @@ const ProfileScreen = ({ navigation }) => {
       }
     } catch (error) {
       console.error("Error loading shift data:", error);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadUserData(), loadTaskStats(), loadCurrentEvent()]);
+      await loadShiftData();
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -259,7 +270,12 @@ const ProfileScreen = ({ navigation }) => {
 
   return (
     // The ScrollView ensures the content can be scrolled
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView
+      contentContainerStyle={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
       {/* Profile Card */}
       <View style={styles.profileCard}>
         {/* Profile Image/Icon */}
@@ -474,6 +490,15 @@ const ProfileScreen = ({ navigation }) => {
           )}
         </>
       ) : null}
+
+      {/* Settings */}
+      <TouchableOpacity
+        style={styles.logoutButton}
+        onPress={() => navigation.navigate('Settings')}
+      >
+        <Feather name="settings" size={20} color={styles.logoutButtonText.color} style={{ marginRight: 8 }} />
+        <Text style={styles.logoutButtonText}>Settings</Text>
+      </TouchableOpacity>
 
       {/* Logout Button */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogoutPress}>

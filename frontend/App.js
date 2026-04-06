@@ -15,8 +15,8 @@ import AddPersonScreen from './screens/AddPersonScreen.js';
 import CasualtyListScreen from './screens/CasualtyListScreen.js';
 import CasualtyDetailScreen from './screens/CasualtyDetailScreen';
 import CommanderNavigator from './navigation/CommanderNavigator';
-import { getStoredToken } from './services/api';
-import { getCommanderToken } from './services/commanderApi';
+import { getStoredToken, removeToken } from './services/api';
+import { clearCommanderAuth, getCommanderToken } from './services/commanderApi';
 import { applyGlobalFont } from "./styles/FontPatch";
 import {
   useFonts,
@@ -38,10 +38,42 @@ const MembersStack = createNativeStackNavigator();
 const AddPersonStack = createNativeStackNavigator();
 const CasualtyListStack = createNativeStackNavigator();
 const GuideStack = createNativeStackNavigator();
+const ACTIVE_ROLE_KEY = '@emertgency:active_role';
 // i need to override react native's header in order to increase size of app
 // change fonts, bg colors of header etc here
 
 applyGlobalFont();
+
+const getAsyncStorage = () => require('@react-native-async-storage/async-storage').default;
+
+const getStoredActiveRole = async () => {
+  try {
+    const AsyncStorage = getAsyncStorage();
+    const value = await AsyncStorage.getItem(ACTIVE_ROLE_KEY);
+    return value === 'member' || value === 'commander' ? value : null;
+  } catch (error) {
+    console.error('Error reading active role:', error);
+    return null;
+  }
+};
+
+const setStoredActiveRole = async (role) => {
+  try {
+    const AsyncStorage = getAsyncStorage();
+    await AsyncStorage.setItem(ACTIVE_ROLE_KEY, role);
+  } catch (error) {
+    console.error('Error storing active role:', error);
+  }
+};
+
+const clearStoredActiveRole = async () => {
+  try {
+    const AsyncStorage = getAsyncStorage();
+    await AsyncStorage.removeItem(ACTIVE_ROLE_KEY);
+  } catch (error) {
+    console.error('Error clearing active role:', error);
+  }
+};
 
 const CustomHeader = () => (
   <View
@@ -154,6 +186,7 @@ function ProfileStackScreen() {
             ),
           })}
         />
+        <ProfileStack.Screen name="Settings" component={SettingsScreen} />
       </ProfileStack.Navigator>
   );
 }
@@ -326,19 +359,41 @@ export default function App() {
   React.useEffect(() => {
     const checkAuth = async () => {
       try {
-        const [memberToken, commanderToken] = await Promise.all([
+        const [memberToken, commanderToken, activeRole] = await Promise.all([
           getStoredToken(),
           getCommanderToken(),
+          getStoredActiveRole(),
         ]);
-        if (memberToken) {
-          setIsAuthenticated(true);
-          setUserRole('member');
-        } else if (commanderToken) {
+
+        const hasMemberToken = Boolean(memberToken);
+        const hasCommanderToken = Boolean(commanderToken);
+        let resolvedRole = null;
+
+        if (activeRole === 'commander' && hasCommanderToken) {
+          resolvedRole = 'commander';
+        } else if (activeRole === 'member' && hasMemberToken) {
+          resolvedRole = 'member';
+        } else if (hasCommanderToken && !hasMemberToken) {
+          resolvedRole = 'commander';
+        } else if (hasMemberToken && !hasCommanderToken) {
+          resolvedRole = 'member';
+        } else if (hasCommanderToken && hasMemberToken) {
+          // If both tokens exist, prefer commander to avoid falling into member flow.
+          resolvedRole = 'commander';
+        }
+
+        if (resolvedRole === 'commander') {
+          await setStoredActiveRole('commander');
           setIsAuthenticated(true);
           setUserRole('commander');
+        } else if (resolvedRole === 'member') {
+          await setStoredActiveRole('member');
+          setIsAuthenticated(true);
+          setUserRole('member');
         } else {
           setIsAuthenticated(false);
           setUserRole(null);
+          await clearStoredActiveRole();
         }
       } catch (error) {
         console.error('Error checking auth:', error);
@@ -351,20 +406,30 @@ export default function App() {
     checkAuth();
   }, []);
 
-  const handleAuthSuccess = (role) => {
+  const handleAuthSuccess = async (role) => {
+    const normalizedRole = role === 'commander' ? 'commander' : 'member';
     setIsAuthenticated(true);
-    setUserRole(role || 'member');
+    setUserRole(normalizedRole);
+    await setStoredActiveRole(normalizedRole);
+  };
+
+  const handleSwitchInterface = async () => {
+    const targetRole = userRole === 'commander' ? 'member' : 'commander';
+    const targetToken = targetRole === 'commander' ? await getCommanderToken() : await getStoredToken();
+
+    if (!targetToken) {
+      return false;
+    }
+
+    setUserRole(targetRole);
+    await setStoredActiveRole(targetRole);
+    return true;
   };
 
   const handleLogout = async () => {
     try {
-      if (userRole === 'commander') {
-        const commanderApi = require('./services/commanderApi').default;
-        await commanderApi.logout();
-      } else {
-        const { authAPI } = require('./services/api');
-        await authAPI.logout();
-      }
+      // Clear both auth stores to avoid stale cross-flow session restores.
+      await Promise.all([removeToken(), clearCommanderAuth(), clearStoredActiveRole()]);
       setIsAuthenticated(false);
       setUserRole(null);
     } catch (error) {
@@ -380,7 +445,7 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AuthContext.Provider value={{ isAuthenticated, userRole, setUserRole, handleLogout }}>
+      <AuthContext.Provider value={{ isAuthenticated, userRole, setUserRole, handleLogout, handleSwitchInterface }}>
         <NavigationContainer>
         <AuthStack.Navigator screenOptions={{ headerShown: false }}>
           {!isAuthenticated ? (

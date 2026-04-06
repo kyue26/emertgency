@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { Dropdown } from "react-native-element-dropdown";
@@ -18,6 +19,7 @@ import { colors, spacing, shadows, radius } from "../../styles/CommanderTheme";
 import commanderApi, { getCommanderUser } from "../../services/commanderApi";
 
 const ROLE_STORAGE_PREFIX = "@emertgency:role_assignments:";
+const CLOSED_EVENT_STATUSES = new Set(["finished", "cancelled"]);
 
 const ROLE_KEYS = [
   "command",
@@ -55,6 +57,7 @@ export default function CommanderDrillSetupScreen() {
   const [professionals, setProfessionals] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -64,6 +67,20 @@ export default function CommanderDrillSetupScreen() {
   const [joinInviteCode, setJoinInviteCode] = useState("");
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState(null);
+
+  const getEmptyDrillInfo = useCallback(
+    () => ({
+      drillName: "",
+      location: "",
+      date: new Date().toISOString().split("T")[0],
+    }),
+    []
+  );
+
+  const getEmptyRoleAssignments = useCallback(
+    () => ROLE_KEYS.reduce((acc, k) => ({ ...acc, [k]: "" }), {}),
+    []
+  );
 
   // Incident Commander = whoever is assigned to "command". First person to save becomes IC unless they assign someone else.
   const incidentCommanderName = roleAssignments.command || null;
@@ -115,7 +132,13 @@ export default function CommanderDrillSetupScreen() {
 
       let event = eventRes?.event || eventRes?.data?.event || null;
 
-      if (event) {
+      if (event && CLOSED_EVENT_STATUSES.has(event.status)) {
+        // After stop/cancel, reset setup so old drill data does not persist in UI.
+        setIsDrillActive(false);
+        setCurrentEvent(null);
+        setDrillInfo(getEmptyDrillInfo());
+        setRoleAssignments(getEmptyRoleAssignments());
+      } else if (event) {
         setIsDrillActive(event.status === "in_progress");
         setDrillInfo({
           drillName: event.name || "",
@@ -138,18 +161,25 @@ export default function CommanderDrillSetupScreen() {
             const parsed = JSON.parse(stored);
             const merged = ROLE_KEYS.reduce((a, k) => ({ ...a, [k]: parsed[k] || "" }), {});
             setRoleAssignments(merged);
+          } else {
+            setRoleAssignments(getEmptyRoleAssignments());
           }
-        } catch (_) {}
+        } catch (_) {
+          setRoleAssignments(getEmptyRoleAssignments());
+        }
       } else {
         setIsDrillActive(false);
         setCurrentEvent(null);
+        setDrillInfo(getEmptyDrillInfo());
+        setRoleAssignments(getEmptyRoleAssignments());
       }
     } catch (e) {
       console.warn("Load drill/event error:", e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [getEmptyDrillInfo, getEmptyRoleAssignments]);
 
   useFocusEffect(
     useCallback(() => {
@@ -204,6 +234,11 @@ export default function CommanderDrillSetupScreen() {
       setSaving(false);
     }
   };
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    load();
+  }, [load]);
 
   const handleStartDrill = async () => {
     if (!currentEvent) {
@@ -299,6 +334,13 @@ export default function CommanderDrillSetupScreen() {
       style={styles.container}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[colors.pennBlue]}
+        />
+      }
     >
       {error ? (
         <AnimatedSection entering={FadeInDown.duration(300)} style={styles.errorBox}>

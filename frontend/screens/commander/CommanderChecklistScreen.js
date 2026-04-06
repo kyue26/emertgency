@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Linking,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
@@ -124,6 +125,7 @@ export default function CommanderChecklistScreen() {
   const [stagingTriageInfo, setStagingTriageInfo] = useState("");
   const [stagingTreatmentInfo, setStagingTreatmentInfo] = useState("");
   const [currentEventId, setCurrentEventId] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -176,10 +178,17 @@ export default function CommanderChecklistScreen() {
       }
     } catch (e) {
       console.warn("Checklist load error:", e);
+    } finally {
+      setRefreshing(false);
     }
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    load();
+  }, [load]);
 
   useEffect(() => {
     if (!currentEventId) return;
@@ -384,7 +393,18 @@ export default function CommanderChecklistScreen() {
 
   if (userResponsibilities.length === 0) {
     return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.pennBlue]}
+          />
+        }
+      >
         <View style={[styles.card, styles.sectionIndent, styles.emptyBox]}>
           <Feather name="user-x" size={48} color={colors.textSecondary} />
           <Text style={styles.emptyText}>
@@ -396,7 +416,18 @@ export default function CommanderChecklistScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[colors.pennBlue]}
+        />
+      }
+    >
       {/* Progress card */}
       <View style={[styles.card, styles.sectionIndent]}>
         <View style={styles.progressRow}>

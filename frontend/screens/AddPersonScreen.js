@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator, RefreshControl } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import styles from "../styles/AddPersonModalStyles";
 import { Dropdown } from "react-native-element-dropdown";
@@ -136,6 +136,7 @@ const AddPersonScreen = ({ navigation }) => {
   const [currentEvent, setCurrentEvent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingEvent, setLoadingEvent] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchCurrentEvent = useCallback(async () => {
     setLoadingEvent(true);
@@ -155,6 +156,7 @@ const AddPersonScreen = ({ navigation }) => {
       setActiveEventId(null);
     } finally {
       setLoadingEvent(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -169,6 +171,11 @@ const AddPersonScreen = ({ navigation }) => {
     setForm(INITIAL_FORM_STATE);
     navigation.goBack();
   };
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchCurrentEvent();
+  }, [fetchCurrentEvent]);
 
   const updateForm = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -318,6 +325,9 @@ const AddPersonScreen = ({ navigation }) => {
         ]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
         <View style={styles.titleBox}>
           <Text style={styles.title}>Add New Casualty</Text>

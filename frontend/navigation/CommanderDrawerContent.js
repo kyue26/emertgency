@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useState, useEffect, useContext } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { DrawerContentScrollView } from "@react-navigation/drawer";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, radius, shadows } from "../styles/CommanderTheme";
 import { COMMANDER_MENU_ITEMS } from "./commanderScreenConfig";
 import { getCommanderUser } from "../services/commanderApi";
+import { AuthContext } from "../context/AuthContext";
 
 function getInitials(name) {
   if (!name || typeof name !== "string") return "C";
@@ -23,6 +24,8 @@ export default function CommanderDrawerContent(props) {
   const insets = useSafeAreaInsets();
   const current = state?.routes?.[state.index]?.name;
   const [user, setUser] = useState(null);
+  const [switching, setSwitching] = useState(false);
+  const { userRole, handleSwitchInterface } = useContext(AuthContext);
 
   useEffect(() => {
     getCommanderUser().then(setUser).catch(() => setUser(null));
@@ -94,7 +97,7 @@ export default function CommanderDrawerContent(props) {
         })}
       </View>
 
-      {/* Footer: Profile (with pic) + Sign out */}
+      {/* Footer: Profile + Switch + Sign out */}
       <View style={styles.footer}>
         <View style={styles.divider} />
 
@@ -119,6 +122,39 @@ export default function CommanderDrawerContent(props) {
               Profile & Events
             </Text>
           </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.switchItem, switching && styles.disabledItem]}
+          onPress={async () => {
+            if (!handleSwitchInterface || switching) return;
+            setSwitching(true);
+            try {
+              const switched = await handleSwitchInterface();
+              if (!switched) {
+                const targetLabel = userRole === "commander" ? "MERT" : "Commander";
+                Alert.alert(
+                  "Sign-in Required",
+                  `No active ${targetLabel} session found. Please sign in once, then you can switch without logging in again.`
+                );
+              } else {
+                navigation.closeDrawer();
+              }
+            } finally {
+              setSwitching(false);
+            }
+          }}
+          activeOpacity={0.7}
+          disabled={switching}
+        >
+          <View style={styles.switchIconWrap}>
+            {switching ? (
+              <ActivityIndicator color={colors.pennBlue} />
+            ) : (
+              <Feather name="repeat" size={20} color={colors.pennBlue} />
+            )}
+          </View>
+          <Text style={styles.switchText}>Switch Interface</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -151,7 +187,6 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    minHeight: "100%",
     paddingHorizontal: 0,
   },
   brandBlock: {
@@ -194,7 +229,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     paddingHorizontal: spacing.sm,
   },
-  menu: { flex: 1 },
+  menu: { marginBottom: spacing.sm },
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -230,7 +265,9 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
   },
-  footer: {},
+  footer: {
+    marginTop: spacing.xs,
+  },
   divider: {
     height: 1,
     backgroundColor: colors.border,
@@ -294,6 +331,34 @@ const styles = StyleSheet.create({
     backgroundColor: colors.redBg,
     borderWidth: 1,
     borderColor: "rgba(220, 38, 38, 0.2)",
+  },
+  switchItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+    gap: 12,
+    marginBottom: spacing.sm,
+    backgroundColor: "rgba(1, 31, 91, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(1, 31, 91, 0.22)",
+  },
+  switchIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(1, 31, 91, 0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  switchText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: colors.pennBlue,
+  },
+  disabledItem: {
+    opacity: 0.7,
   },
   logoutIconWrap: {
     width: 40,

@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, ScrollView, StyleSheet } from "react-native";
+import React, { useCallback, useState } from "react";
+import { View, Text, ScrollView, StyleSheet, RefreshControl } from "react-native";
 
 const codeData = [
   {
@@ -99,11 +99,19 @@ const triageCharts = [
 ];
 
 const GuideScreen = () => {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 300);
+  }, []);
+
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.container}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={styles.titleBox}>
           <Text style={styles.title}>Reference & Guidelines</Text>
